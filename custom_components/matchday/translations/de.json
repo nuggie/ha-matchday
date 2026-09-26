@@ -13,5 +13,12 @@
       "already_configured": "Dieser Wettbewerb ist bereits eingerichtet.",
       "all_configured": "Alle unterstützten Wettbewerbe sind bereits eingerichtet."
     }
+  },
+  "entity": {
+    "sensor": {
+      "matchday": {
+        "name": "Spieltag"
+      }
+    }
   }
 }

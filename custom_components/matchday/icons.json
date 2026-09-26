@@ -1,0 +1,9 @@
+{
+  "entity": {
+    "sensor": {
+      "matchday": {
+        "default": "mdi:soccer-field"
+      }
+    }
+  }
+}

@@ -13,5 +13,12 @@
       "already_configured": "This competition is already set up.",
       "all_configured": "All supported competitions are already set up."
     }
+  },
+  "entity": {
+    "sensor": {
+      "matchday": {
+        "name": "Matchday"
+      }
+    }
   }
 }

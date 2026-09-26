@@ -4,3 +4,10 @@ testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py313"
+
+[tool.ruff.lint.isort]
+# Home Assistant core style: homeassistant is its own section.
+known-first-party = ["homeassistant"]
+known-local-folder = ["custom_components"]
+combine-as-imports = true
+force-sort-within-sections = true

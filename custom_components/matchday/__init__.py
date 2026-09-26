@@ -1,23 +1,37 @@
 """The Matchday integration.
 
-Phase 0 skeleton: config entries can be created, but no entities yet. Data
-fetching (OpenLigaDB + ESPN) and the matchday sensor follow in phase 1.
+Phase 1: competitions with an OpenLigaDB source (Bundesliga first) get a matchday
+sensor fed by OpenLigaDB (fixtures, matchday) and ESPN (live data). The UEFA
+competitions follow in phase 3.
 """
 
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryError
 
-PLATFORMS: list[str] = []
+from .const import COMPETITIONS, CONF_COMPETITION
+from .coordinator import MatchdayConfigEntry, MatchdayCoordinator
+
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: MatchdayConfigEntry) -> bool:
     """Set up a Matchday competition from a config entry."""
+    competition = COMPETITIONS[entry.data[CONF_COMPETITION]]
+    if competition.openligadb_shortcut is None:
+        raise ConfigEntryError(
+            f"{competition.name} is not supported yet (ESPN-only competitions "
+            "follow in a later version)"
+        )
+    coordinator = MatchdayCoordinator(hass, entry, competition)
+    await coordinator.async_config_entry_first_refresh()
+    entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: MatchdayConfigEntry) -> bool:
     """Unload a Matchday competition."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
