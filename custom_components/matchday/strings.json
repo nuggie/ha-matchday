@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Follow a competition",
+        "description": "Matchday shows the current matchday of the selected competition with live scores.",
+        "data": {
+          "competition": "Competition"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This competition is already set up.",
+      "all_configured": "All supported competitions are already set up."
+    }
+  }
+}

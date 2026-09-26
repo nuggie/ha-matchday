@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Wettbewerb folgen",
+        "description": "Matchday zeigt den aktuellen Spieltag des gewählten Wettbewerbs mit Live-Ergebnissen.",
+        "data": {
+          "competition": "Wettbewerb"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Dieser Wettbewerb ist bereits eingerichtet.",
+      "all_configured": "Alle unterstützten Wettbewerbe sind bereits eingerichtet."
+    }
+  }
+}
