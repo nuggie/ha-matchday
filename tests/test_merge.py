@@ -261,6 +261,33 @@ def test_unpaired_match_keeps_openligadb_data() -> None:
     assert upcoming["oldb_score"] is None
 
 
+def test_oldb_score_prefers_extra_time_result() -> None:
+    """OpenLigaDB keeps "Endergebnis" at the 90-minute score; extra time is type 4.
+
+    Real case, DFB-Pokal 2026 round 1: Mannheim - Kaiserslautern 0:0 after 90
+    minutes, 0:1 after extra time. The shoot-out (type 5) must not be used.
+    """
+    match = oldb_match(
+        1, "2026-08-21T16:00:00Z", "Mannheim", "Kaiserslautern", finished=True
+    )
+    match["matchResults"] = [
+        {"resultTypeID": 1, "pointsTeam1": 0, "pointsTeam2": 0},
+        {"resultTypeID": 2, "pointsTeam1": 0, "pointsTeam2": 0},
+        {"resultTypeID": 4, "pointsTeam1": 0, "pointsTeam2": 1},
+    ]
+    shootout = oldb_match(
+        2, "2026-08-21T16:00:00Z", "Altglienicke", "Wolfsburg", finished=True
+    )
+    shootout["matchResults"] = [
+        {"resultTypeID": 2, "pointsTeam1": 2, "pointsTeam2": 2},
+        {"resultTypeID": 4, "pointsTeam1": 3, "pointsTeam2": 3},
+        {"resultTypeID": 5, "pointsTeam1": 8, "pointsTeam2": 9},
+    ]
+    extra_time, penalties = merge_matches([match, shootout], [], norm_de, BERLIN)
+    assert extra_time["oldb_score"] == "0:1"
+    assert penalties["oldb_score"] == "3:3"
+
+
 def test_details_team_types_and_stoppage_time_order() -> None:
     """Goal types, card colours, team by ESPN home id, stoppage time in order."""
     competition = espn_event(

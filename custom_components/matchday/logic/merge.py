@@ -248,9 +248,19 @@ def pair_matches(
 
 
 def _oldb_score(match: Mapping[str, Any]) -> str | None:
-    """Return the OpenLigaDB final score ("h:a", result type 2), if any."""
-    for result in match.get("matchResults") or []:
-        if isinstance(result, Mapping) and result.get("resultTypeID") == 2:
+    """Return the OpenLigaDB final score ("h:a"), if any.
+
+    OpenLigaDB's "Endergebnis" (result type 2) is the score after 90 minutes even
+    when the match went to extra time; the score after extra time is result type 4
+    ("Verlängerung") and wins when present. The shoot-out (type 5) is not a score.
+    """
+    results = {
+        result.get("resultTypeID"): result
+        for result in match.get("matchResults") or []
+        if isinstance(result, Mapping)
+    }
+    for result_type in (4, 2):
+        if (result := results.get(result_type)) is not None:
             return f"{result.get('pointsTeam1')}:{result.get('pointsTeam2')}"
     return None
 
