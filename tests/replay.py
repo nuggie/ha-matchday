@@ -9,11 +9,17 @@ refresh is fired by Home Assistant's own timer, so a wrong interval shows up as 
 missing or early update. Where the recording changes between two scheduled
 refreshes (goal, status, card), the harness adds a refresh at that moment, as a
 user pressing "update" would; the coordinator reschedules from there.
+
+Match summaries are served for the game recorded with summaries (ESP @ ENG):
+the last one recorded before the simulated time. The recorder stored summaries
+only while a game ran, so the final one is from 90'+6'. Summary requests for
+other games (or before the first recording) answer HTTP 404.
 """
 
 from __future__ import annotations
 
 from bisect import bisect_right
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -46,7 +52,12 @@ REPLAY_FIXTURE = FIXTURES / "replay" / "uefa.nations-20260926.json.gz"
 # A test-only competition: OpenLigaDB has no Nations League, the synthetic
 # "unl" league stands in for it. English team names, like ESPN's.
 REPLAY_COMPETITION = Competition(
-    "unl", "Nations League Replay", "uefa.nations", "unl", team_names="en"
+    "unl",
+    "Nations League Replay",
+    "uefa.nations",
+    "unl",
+    team_names="en",
+    has_table=False,
 )
 SEASON = 2026
 MATCHDAY = 3
@@ -114,6 +125,11 @@ class Recording:
             for snap in data["scoreboards"]
         ]
         self._times = [snap.ts for snap in self.snapshots]
+        self.summaries: dict[str, list[tuple[datetime, dict[str, Any]]]] = {}
+        for item in data.get("summaries") or []:
+            self.summaries.setdefault(item["event"], []).append(
+                (parse_ts(item["ts"]), item["summary"])
+            )
 
     def at(self, now: datetime) -> Snapshot:
         """Return the snapshot valid at ``now`` (the first one before it starts)."""
@@ -142,6 +158,13 @@ class Recording:
             if key(previous) != key(current)
         ]
 
+    def summary_at(self, event_id: str, now: datetime) -> dict[str, Any] | None:
+        """Return the last summary of ``event_id`` recorded up to ``now``."""
+        recorded = self.summaries.get(event_id) or []
+        times = [ts for ts, _summary in recorded]
+        index = bisect_right(times, now) - 1
+        return recorded[index][1] if index >= 0 else None
+
     def final_whistle(self, short_name: str) -> datetime:
         """Return when ESPN first reported ``short_name`` as finished."""
         return next(
@@ -162,6 +185,10 @@ class MatchView:
     cards: list[tuple[str, str, str]]
     espn_id: str | None
     oldb_score: str | None
+    substitutions: int
+    ht_score: str | None
+    stats: dict[str, list[int]] | None
+    lineups: bool
 
 
 @dataclass(slots=True)
@@ -176,6 +203,7 @@ class Observation:
     sensor_state: str
     lookups: int  # last/next match requests made by this refresh
     espn_requests: int
+    summary_requests: dict[str, int]  # ESPN event id -> requests by this refresh
     snapshot: Snapshot
     matches: dict[str, MatchView] = field(default_factory=dict)
     # live_score per match as the sensor entity shows it.
@@ -194,6 +222,10 @@ def _view(match: Mapping[str, Any]) -> MatchView:
         cards=entries(match["cards"]),
         espn_id=match["espn_id"],
         oldb_score=match["oldb_score"],
+        substitutions=len(match["substitutions"]),
+        ht_score=match["ht_score"],
+        stats=match["stats"],
+        lineups=match["lineups"] is not None,
     )
 
 
@@ -240,6 +272,18 @@ class Replay:
         aioclient_mock.clear_requests()
         for url, answer in answers.items():
             aioclient_mock.get(url, side_effect=self._responder(answer))
+        for event_id in self._event_ids():
+            aioclient_mock.get(
+                f"{ESPN}/{recording.slug}/summary?event={event_id}",
+                side_effect=self._summary_responder(event_id),
+            )
+
+    def _event_ids(self) -> set[str]:
+        return {
+            str(event["id"])
+            for snapshot in self.recording.snapshots
+            for event in snapshot.events
+        }
 
     def _responder(self, answer: Callable[[], Any]) -> Callable[[str, URL, Any], Any]:
         async def respond(
@@ -247,6 +291,18 @@ class Replay:
         ) -> AiohttpClientMockResponse:
             self.requests.append(str(url))
             return AiohttpClientMockResponse(method, url, json=answer())
+
+        return respond
+
+    def _summary_responder(self, event_id: str) -> Callable[[str, URL, Any], Any]:
+        async def respond(
+            method: str, url: URL, data: Any
+        ) -> AiohttpClientMockResponse:
+            self.requests.append(str(url))
+            summary = self.recording.summary_at(event_id, dt_util.utcnow())
+            if summary is None:
+                return AiohttpClientMockResponse(method, url, status=404)
+            return AiohttpClientMockResponse(method, url, json=summary)
 
         return respond
 
@@ -339,7 +395,9 @@ class Replay:
         mark = len(self.requests)
         self.freezer.tick(self.coordinator.update_interval)
         async_fire_time_changed(self.hass)
-        await self.hass.async_block_till_done()
+        # The scheduled refresh runs as a background task: wait for it, or a
+        # refresh that awaits several requests is observed half done.
+        await self.hass.async_block_till_done(wait_background_tasks=True)
         assert len(self.requests) > mark, f"no scheduled refresh at {self.now}"
         return self._observe("scheduled", mark)
 
@@ -384,6 +442,9 @@ class Replay:
             sensor_state=state.state if state else "",
             lookups=sum("matchbyleagueshortcut" in url for url in new),
             espn_requests=sum("/scoreboard" in url for url in new),
+            summary_requests=dict(
+                Counter(url.rsplit("=", 1)[1] for url in new if "/summary" in url)
+            ),
             snapshot=self.recording.at(self.now),
             matches={self._label(match): _view(match) for match in data.matches},
             sensor_scores={

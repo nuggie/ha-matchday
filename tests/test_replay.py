@@ -46,10 +46,16 @@ from custom_components.matchday.logic.matchday import (
     KICKOFF_LEAD,
 )
 from custom_components.matchday.logic.merge import norm_de, norm_en, pair_matches
+from custom_components.matchday.logic.summary import (
+    MAX_POST_FAILURES,
+    SUMMARY_REFRESH,
+    SUMMARY_SETTLE,
+)
 
 RECORDING = Recording()
 GAMES = ("SCO @ SVN", "CRO @ CZE", "ESP @ ENG")
 EARLY, VAR, LEAD_CHANGES = GAMES
+EVENT_IDS = {EARLY: "401861057", VAR: "401861063", LEAD_CHANGES: "401861066"}
 
 # 23:00 local on the Thursday before: the ESPN window opens at local midnight.
 START = datetime(2026, 9, 24, 21, 0, tzinfo=UTC)
@@ -456,3 +462,97 @@ async def test_after_final_whistle(timeline: list[Observation]) -> None:
         assert {o.matches[name].oldb_score for o in timeline if o.time >= entered} == {
             final[name].live_score
         }
+
+
+# --- match summaries ------------------------------------------------------------------
+
+
+def summary_fetches(timeline: list[Observation], name: str) -> list[Observation]:
+    """Return the observations whose refresh requested the summary of ``name``."""
+    return [o for o in timeline if o.summary_requests.get(EVENT_IDS[name])]
+
+
+async def test_summaries_only_for_running_and_just_finished_games(
+    timeline: list[Observation],
+) -> None:
+    """No summary before kickoff, one per refresh at most, none after the day."""
+    for observation in timeline:
+        assert all(count == 1 for count in observation.summary_requests.values())
+        for name in GAMES:
+            if observation.summary_requests.get(EVENT_IDS[name]):
+                assert observation.matches[name].status != "pre"
+    last_fetch = max(o.time for o in timeline if o.summary_requests)
+    assert last_fetch < RECORDING.final_whistle(LEAD_CHANGES) + timedelta(minutes=15)
+
+
+async def test_summary_every_three_minutes_or_on_status_change(
+    timeline: list[Observation],
+) -> None:
+    """While live, fetches are three minutes apart unless the status changed."""
+    for name in GAMES:
+        fetches = summary_fetches(timeline, name)
+        assert fetches, name
+        for previous, current in pairwise(fetches):
+            status_changed = (
+                previous.matches[name].status != current.matches[name].status
+            )
+            assert status_changed or (
+                current.time - previous.time >= SUMMARY_REFRESH - timedelta(seconds=15)
+            ), (name, previous.time, current.time)
+
+
+async def test_summary_details_grow_during_the_game(
+    timeline: list[Observation],
+) -> None:
+    """ESP @ ENG: lineups from the start, substitutions and half time grow in."""
+    fetched = [o.matches[LEAD_CHANGES] for o in summary_fetches(timeline, LEAD_CHANGES)]
+    assert all(match.lineups for match in fetched)
+    subs = [match.substitutions for match in fetched]
+    assert subs == sorted(subs)
+    assert subs[-1] == 9
+    after_half_time = [
+        o.matches[LEAD_CHANGES].ht_score
+        for o in timeline
+        if o.time >= KICKOFF[LEAD_CHANGES] + timedelta(minutes=50)
+    ]
+    assert set(after_half_time) == {"2:1"}
+    assert timeline[-1].matches[LEAD_CHANGES].stats == {
+        "possession": [47, 53],
+        "shots": [13, 15],
+        "shots_on": [5, 5],
+        "corners": [6, 3],
+    }
+
+
+async def test_finished_game_fetched_twice_then_kept(
+    timeline: list[Observation],
+) -> None:
+    """Final whistle and once more after settling; the details stay until Monday."""
+    whistle = RECORDING.final_whistle(LEAD_CHANGES)
+    after = [o for o in summary_fetches(timeline, LEAD_CHANGES) if o.time >= whistle]
+    assert len(after) == 2
+    assert after[1].time - after[0].time >= SUMMARY_SETTLE
+    final = timeline[-1].matches[LEAD_CHANGES]
+    assert final.substitutions == 9
+    assert final.lineups
+    assert final.ht_score == "2:1"
+    assert all(
+        o.matches[LEAD_CHANGES].substitutions == 9
+        for o in timeline
+        if o.time >= after[-1].time
+    )
+
+
+async def test_missing_summaries_are_throttled(timeline: list[Observation]) -> None:
+    """ESPN answers 404 for the other two games: placeholders, few retries."""
+    for name in (EARLY, VAR):
+        final = timeline[-1].matches[name]
+        assert (final.substitutions, final.ht_score, final.stats, final.lineups) == (
+            0,
+            None,
+            None,
+            False,
+        )
+        whistle = RECORDING.final_whistle(name)
+        after = [o for o in summary_fetches(timeline, name) if o.time >= whistle]
+        assert len(after) == MAX_POST_FAILURES, name

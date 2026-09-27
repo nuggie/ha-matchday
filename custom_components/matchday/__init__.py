@@ -1,8 +1,9 @@
 """The Matchday integration.
 
-Phase 1: competitions with an OpenLigaDB source (Bundesliga first) get a matchday
-sensor fed by OpenLigaDB (fixtures, matchday) and ESPN (live data). The UEFA
-competitions follow in phase 3.
+Competitions with an OpenLigaDB source (Bundesliga, 2. Bundesliga, DFB-Pokal,
+Premier League) get a matchday sensor fed by OpenLigaDB (fixtures, matchday) and
+ESPN (live data, match summaries), leagues also a table sensor (ESPN standings
+with live delta). The UEFA competitions follow in phase 3.
 """
 
 from __future__ import annotations

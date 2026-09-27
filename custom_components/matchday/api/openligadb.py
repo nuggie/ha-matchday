@@ -54,6 +54,25 @@ class OpenLigaDbClient:
             )
         return [match for match in data if _as_match(match) is not None]
 
+    async def async_get_table(self, league: str, season: int) -> list[dict[str, Any]]:
+        """Return the league table (only its team names and crests are used).
+
+        Raises:
+            MatchdayApiError: if the answer is not a list.
+        """
+        data = await async_get_json(
+            self._session, f"{BASE_URL}/getbltable/{league}/{season}"
+        )
+        if not isinstance(data, list):
+            raise MatchdayApiError(
+                f"getbltable/{league}/{season} did not return a list"
+            )
+        return [
+            team
+            for team in data
+            if isinstance(team, dict) and isinstance(team.get("teamName"), str)
+        ]
+
 
 def _as_match(data: Any) -> OldbMatch | None:
     """Return ``data`` if it looks like an OpenLigaDB match object."""

@@ -13,9 +13,10 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .test_coordinator import mock_sources, setup_bl1
 from custom_components.matchday.const import CONF_COMPETITION, DOMAIN
-from custom_components.matchday.sensor import MatchdaySensor
+from custom_components.matchday.sensor import MatchdaySensor, MatchdayTableSensor
 
 ENTITY_ID = "sensor.matchday_bundesliga_matchday"
+TABLE_ID = "sensor.matchday_bundesliga_table"
 
 
 @pytest.fixture(autouse=True)
@@ -69,6 +70,64 @@ async def test_state_and_attributes(hass: HomeAssistant) -> None:
 async def test_matches_are_not_recorded() -> None:
     """``matches`` exceeds the recorder's attribute limit and stays unrecorded."""
     assert "matches" in MatchdaySensor._unrecorded_attributes
+    assert "table" in MatchdayTableSensor._unrecorded_attributes
+
+
+async def test_summary_fields_in_matches(hass: HomeAssistant) -> None:
+    """Finished matches carry substitutions, half time, stats and lineups."""
+    await setup_bl1(hass)
+    bayern = next(
+        m
+        for m in hass.states.get(ENTITY_ID).attributes["matches"]
+        if m["matchID"] == 83183
+    )
+    assert bayern["ht_score"] == "3:0"
+    assert len(bayern["substitutions"]) == 10
+    assert set(bayern["stats"]) == {"possession", "shots", "shots_on", "corners"}
+    assert len(bayern["lineups"]["home"]["players"]) == 11
+    assert bayern["pso"] is None
+
+
+async def test_table_sensor(hass: HomeAssistant) -> None:
+    """State: standings time; attributes: the table in the template format."""
+    await setup_bl1(hass)
+    state = hass.states.get(TABLE_ID)
+    assert state.state == "2026-09-26T10:00:00+00:00"
+    assert state.attributes["device_class"] == "timestamp"
+    assert state.attributes["friendly_name"] == "Matchday Bundesliga Table"
+    assert state.attributes["live"] is False
+    assert (state.attributes["matchday"], state.attributes["season"]) == (4, 2026)
+    table = state.attributes["table"]
+    assert len(table) == 18
+    assert set(table[0]) == {
+        "espn_team_id",
+        "teamName",
+        "shortName",
+        "teamIconUrl",
+        "matches",
+        "won",
+        "draw",
+        "lost",
+        "goals",
+        "opponentGoals",
+        "diff",
+        "points",
+        "live",
+        "live_score",
+    }
+    entity = er.async_get(hass).async_get(TABLE_ID)
+    assert entity.unique_id == "bl1_table"
+    assert entity.device_id == er.async_get(hass).async_get(ENTITY_ID).device_id
+
+
+async def test_table_sensor_unavailable_without_standings(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """No standings yet: the table is unavailable, the matchday is not."""
+    mock_sources(aioclient_mock, standings={"children": []})
+    await setup_bl1(hass)
+    assert hass.states.get(TABLE_ID).state == "unavailable"
+    assert hass.states.get(ENTITY_ID).state == "4. Spieltag"
 
 
 async def test_device_and_unique_id(hass: HomeAssistant) -> None:
@@ -92,6 +151,8 @@ async def test_german_entity_id_does_not_collide(hass: HomeAssistant) -> None:
     assert state is not None
     assert state.state == "4. Spieltag"
     assert hass.states.get("sensor.bundesliga_spieltag") is None
+    assert hass.states.get("sensor.matchday_bundesliga_tabelle") is not None
+    assert hass.states.get("sensor.bundesliga_tabelle") is None
 
 
 async def test_unload(hass: HomeAssistant) -> None:

@@ -1,4 +1,4 @@
-"""Async client for the (unofficial) ESPN soccer scoreboard API."""
+"""Async client for the (unofficial) ESPN soccer API: scoreboard, summary, standings."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import aiohttp
 from . import MatchdayApiError, async_get_json
 
 BASE_URL = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+# Standings live under a different path ("apis/v2", not "apis/site/v2").
+STANDINGS_URL = "https://site.api.espn.com/apis/v2/sports/soccer"
 
 type EspnEvent = dict[str, Any]
 
@@ -64,6 +66,38 @@ class EspnClient:
                 events.setdefault(str(event["id"]), event)
         return list(events.values())
 
+    async def async_get_summary(self, slug: str, event_id: str) -> dict[str, Any]:
+        """Return the match summary (key events, box score, rosters) of an event.
+
+        Raises:
+            MatchdayApiError: if the answer is not a summary object.
+        """
+        data = await async_get_json(
+            self._session, f"{BASE_URL}/{slug}/summary", params={"event": event_id}
+        )
+        if not isinstance(data, dict) or not isinstance(data.get("header"), dict):
+            raise MatchdayApiError(f"ESPN summary {slug}/{event_id} has no header")
+        return data
+
+    async def async_get_standings(self, slug: str, season: int) -> list[dict[str, Any]]:
+        """Return the standings entries of league ``slug`` in ``season``, by rank.
+
+        Raises:
+            MatchdayApiError: if the answer has no (non-empty) entries list.
+        """
+        data = await async_get_json(
+            self._session,
+            f"{STANDINGS_URL}/{slug}/standings",
+            params={"season": str(season)},
+        )
+        children = data.get("children") if isinstance(data, dict) else None
+        first = children[0] if isinstance(children, list) and children else None
+        standings = first.get("standings") if isinstance(first, dict) else None
+        entries = standings.get("entries") if isinstance(standings, dict) else None
+        if not isinstance(entries, list) or not entries:
+            raise MatchdayApiError(f"ESPN standings {slug}/{season} have no entries")
+        return [entry for entry in entries if _is_standings_entry(entry)]
+
 
 def _is_event(event: Any) -> bool:
     """Return True for events that carry what the merge needs."""
@@ -76,4 +110,14 @@ def _is_event(event: Any) -> bool:
         and isinstance(competitions[0], dict)
         and isinstance(competitions[0].get("date"), str)
         and isinstance(competitions[0].get("competitors"), list)
+    )
+
+
+def _is_standings_entry(entry: Any) -> bool:
+    """Return True for standings entries with a team id and a stats list."""
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("team"), dict)
+        and "id" in entry["team"]
+        and isinstance(entry.get("stats"), list)
     )

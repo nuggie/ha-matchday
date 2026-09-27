@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 from typing import Any
@@ -10,15 +11,43 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 OLDB = "https://api.openligadb.de"
 ESPN = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+ESPN_STANDINGS = "https://site.api.espn.com/apis/v2/sports/soccer"
 
 
 def load_json(name: str) -> Any:
-    """Load a recorded API answer from ``tests/fixtures``.
+    """Load a recorded API answer from ``tests/fixtures`` (``.gz`` too).
 
     Recorded on 2026-09-26: OpenLigaDB bl1 last/next match and season 2026
-    matchday 4, ESPN ger.1 scoreboard ``?dates=202609``.
+    matchday 4, ESPN ger.1 scoreboard ``?dates=202609``. Recorded on 2026-09-27
+    (``scripts/record_fixtures.py``): one bundle per competition in
+    ``competitions/`` and three unmodified summaries ``espn_summary_*``.
     """
-    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    path = FIXTURES / name
+    if path.suffix == ".gz":
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            return json.load(fh)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def load_bundle(competition: str) -> dict[str, Any]:
+    """Load the recorded bundle of a competition (bl1, bl2, dfb, pl), 2026-09-27."""
+    return load_json(f"competitions/{competition}-20260927.json.gz")
+
+
+def summary_url(slug: str, event_id: str) -> str:
+    """Return the URL the coordinator requests for a match summary."""
+    return f"{ESPN}/{slug}/summary?event={event_id}"
+
+
+def standings_url(slug: str, season: int = 2026) -> str:
+    """Return the URL the coordinator requests for the standings."""
+    return f"{ESPN_STANDINGS}/{slug}/standings?season={season}"
+
+
+def home_team_id(summary: dict[str, Any]) -> str:
+    """Return the ESPN id of the home team of a summary."""
+    competitors = summary["header"]["competitions"][0]["competitors"]
+    return next(c["team"]["id"] for c in competitors if c["homeAway"] == "home")
 
 
 def oldb_match(

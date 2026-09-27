@@ -18,6 +18,9 @@
     "sensor": {
       "matchday": {
         "name": "Matchday"
+      },
+      "table": {
+        "name": "Table"
       }
     }
   }

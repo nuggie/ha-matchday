@@ -5,7 +5,8 @@ supplies status, score, scorers and cards. The output format is the ``matches``
 attribute of the Jinja template sensors this integration replaces, so the
 existing dashboard card keeps working: each OpenLigaDB match dict, enriched with
 ``espn_id``, ``espn_home_team_id``, ``espn_away_team_id``, ``status``, ``minute``,
-``live_score``, ``scorers``, ``cards`` and ``oldb_score``.
+``live_score``, ``scorers``, ``cards`` and ``oldb_score`` (plus the summary
+fields, see ``SUMMARY_PLACEHOLDERS``).
 """
 
 from __future__ import annotations
@@ -24,17 +25,24 @@ type MatchStatus = Literal["pre", "live", "ht", "post"]
 # Stage 2 tolerance: same pairing, kickoff moved by up to four days (Fri -> Tue).
 RESCHEDULE_TOLERANCE = timedelta(seconds=345600)
 
-# Summary fields (substitutions, stats, lineups, half-time score) arrive in phase 2.
-# Until then they carry the values the Jinja sensor uses when no summary exists,
-# so consumers of the ``matches`` format find every key they expect.
+# Summary fields (substitutions, stats, lineups, half-time score, penalty
+# shootout) come from ESPN match summaries (``logic/summary.py``). Until a
+# summary is known they carry the values the Jinja sensor uses without one, so
+# consumers of the ``matches`` format find every key they expect.
 SUMMARY_PLACEHOLDERS: dict[str, Any] = {
     "substitutions": [],
     "stats": None,
     "lineups": None,
     "ht_score": None,
+    "pso": None,
 }
 
-_DE_STOPWORDS = frozenset({"1", "fc", "sv", "tsg", "rb", "sc", "fsv", "borussia"})
+# "tsv" is a stop word only in the 2. Bundesliga and DFB-Pokal Jinja blocks; no
+# Bundesliga club carries it, and dropping it on both sides can only help
+# ("TSV Eintracht Braunschweig" at ESPN vs "Eintracht Braunschweig").
+_DE_STOPWORDS = frozenset(
+    {"1", "fc", "sv", "tsg", "rb", "sc", "fsv", "borussia", "tsv"}
+)
 _DE_REPLACEMENTS = (
     ("ü", "u"),
     ("ö", "o"),
@@ -355,8 +363,15 @@ def merge_matches(
     events: Sequence[Mapping[str, Any]],
     normalize: Normalizer,
     local_tz: tzinfo,
+    *,
+    oldb_results: bool = True,
 ) -> list[dict[str, Any]]:
-    """Return the enriched ``matches`` list, sorted by (possibly corrected) kickoff."""
+    """Return the enriched ``matches`` list, sorted by (possibly corrected) kickoff.
+
+    With ``oldb_results=False`` (Premier League) ``matchResults`` is emptied after
+    ``oldb_score`` was taken from it, like the Jinja block does: OpenLigaDB only
+    holds 0:0 placeholders there.
+    """
     paired = pair_matches(oldb_matches, events, normalize)
     merged = [
         _enrich(match, paired[index], local_tz)
@@ -364,4 +379,7 @@ def merge_matches(
         else _oldb_only(match)
         for index, match in enumerate(oldb_matches)
     ]
+    if not oldb_results:
+        for match in merged:
+            match["matchResults"] = []
     return sorted(merged, key=lambda match: str(match.get("matchDateTimeUTC") or ""))

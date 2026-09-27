@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -25,8 +27,21 @@ from .logic.matchday import (
     update_interval,
 )
 from .logic.merge import NORMALIZERS, merge_matches
+from .logic.summary import SummaryTracker
+from .logic.table import (
+    STANDINGS_PENDING,
+    TableTracker,
+    build_table,
+    live_table,
+    standings_interval,
+)
 
 type MatchdayConfigEntry = ConfigEntry[MatchdayCoordinator]
+
+# Parallel summary requests (a cup round has 32 matches).
+SUMMARY_CONCURRENCY = 4
+# Team names and crests from OpenLigaDB hardly ever change.
+NAMES_REFRESH = timedelta(hours=6)
 
 
 @dataclass(slots=True)
@@ -38,6 +53,11 @@ class MatchdayData:
     name: str
     matches: list[dict[str, Any]] = field(default_factory=list)
     espn_queried: bool = False
+    # League table with the live delta; ``None`` for cups and until the first
+    # standings arrived.
+    table: list[dict[str, Any]] | None = None
+    table_live: bool = False
+    standings_updated: datetime | None = None
 
     @property
     def pick(self) -> MatchdayPick:
@@ -52,6 +72,11 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
     to start, every five minutes around the matchday, every 30 minutes otherwise.
     On errors ``UpdateFailed`` keeps the last good data; an empty or broken
     answer never clears the shown matchday.
+
+    Match summaries and the league table ride along: summaries only for running
+    and just finished matches (``SummaryTracker``), standings every 5 to 30
+    minutes (``standings_interval``). Their failures never fail the update; the
+    last known details and table stay.
     """
 
     config_entry: MatchdayConfigEntry
@@ -78,6 +103,16 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
         self._oldb = OpenLigaDbClient(session)
         self._espn = EspnClient(session)
         self._normalize = NORMALIZERS[competition.team_names]
+        self._summaries = SummaryTracker()
+        self._table_tracker = TableTracker()
+        self._standings: list[dict[str, Any]] | None = None
+        self._standings_at: datetime | None = None
+        self._standings_season: int | None = None
+        # After a failed standings request, wait before asking again.
+        self._standings_retry_at: datetime | None = None
+        self._names: list[dict[str, Any]] = []
+        self._names_at: datetime | None = None
+        self._base_table: list[dict[str, Any]] | None = None
 
     async def _async_pick_matchday(self) -> MatchdayPick:
         """Decide which matchday to show."""
@@ -127,9 +162,14 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
                 raise UpdateFailed(f"ESPN: {err}") from err
 
         matches = merge_matches(
-            oldb_matches, events, self._normalize, dt_util.get_default_time_zone()
+            oldb_matches,
+            events,
+            self._normalize,
+            dt_util.get_default_time_zone(),
+            oldb_results=self.competition.oldb_results,
         )
         self._guard_lost_espn_data(pick, matches, espn_queried)
+        await self._async_update_summaries(matches)
 
         group = oldb_matches[0].get("group") or {}
         data = MatchdayData(
@@ -139,8 +179,83 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
             matches=matches,
             espn_queried=espn_queried,
         )
+        if self.competition.has_table:
+            await self._async_update_table(data)
         self.update_interval = update_interval(matches, window, today, dt_util.utcnow())
         return data
+
+    async def _async_update_summaries(self, matches: list[dict[str, Any]]) -> None:
+        """Fetch the summaries that are due and write all known details."""
+        now = dt_util.utcnow()
+        due = self._summaries.due(matches, now)
+        if due:
+            semaphore = asyncio.Semaphore(SUMMARY_CONCURRENCY)
+            slug = self.competition.espn_slug
+
+            async def fetch(match: dict[str, Any]) -> None:
+                summary: dict[str, Any] | None = None
+                async with semaphore:
+                    try:
+                        summary = await self._espn.async_get_summary(
+                            slug, str(match["espn_id"])
+                        )
+                    except MatchdayApiError as err:
+                        LOGGER.debug("%s: summary unavailable: %s", slug, err)
+                self._summaries.store(match, summary, now)
+
+            await asyncio.gather(*(fetch(match) for match in due))
+        self._summaries.apply(matches)
+
+    async def _async_update_table(self, data: MatchdayData) -> None:
+        """Refresh the standings when due and compute the live table."""
+        now = dt_util.utcnow()
+        counted = self._table_tracker.counted(data.matches, self._base_table, now)
+        interval = standings_interval(
+            data.matches, self._table_tracker.has_pending(counted), now
+        )
+        due = (
+            self._standings is None
+            or self._standings_season != data.season
+            or self._standings_at is None
+            or now - self._standings_at >= interval
+        )
+        if due and (
+            self._standings_retry_at is None or now >= self._standings_retry_at
+        ):
+            await self._async_fetch_standings(data.season, now)
+
+        if self._standings is None:
+            return
+        self._base_table = build_table(
+            self._standings, self._names, data.matches, self._base_table
+        )
+        counted = self._table_tracker.counted(data.matches, self._base_table, now)
+        data.table = live_table(self._base_table, counted)
+        data.table_live = any(team["live"] for team in data.table)
+        data.standings_updated = self._standings_at
+
+    async def _async_fetch_standings(self, season: int, now: datetime) -> None:
+        """Fetch ESPN standings (and OpenLigaDB names when stale); keep old on errors."""
+        slug = self.competition.espn_slug
+        try:
+            entries = await self._espn.async_get_standings(slug, season)
+        except MatchdayApiError as err:
+            LOGGER.debug("%s: standings unavailable: %s", slug, err)
+            self._standings_retry_at = now + STANDINGS_PENDING
+            return
+        self._standings_retry_at = None
+        if self._standings_season != season:
+            self._base_table = None
+            self._names, self._names_at = [], None
+        self._standings, self._standings_at = entries, now
+        self._standings_season = season
+
+        if self._names_at is None or now - self._names_at >= NAMES_REFRESH:
+            try:
+                self._names = await self._oldb.async_get_table(self._league, season)
+                self._names_at = now
+            except MatchdayApiError as err:
+                LOGGER.debug("%s: team names unavailable: %s", self._league, err)
 
     def _guard_lost_espn_data(
         self, pick: MatchdayPick, matches: list[dict[str, Any]], espn_queried: bool
