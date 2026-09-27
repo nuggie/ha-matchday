@@ -34,6 +34,34 @@ def load_bundle(competition: str) -> dict[str, Any]:
     return load_json(f"competitions/{competition}-20260927.json.gz")
 
 
+def load_history() -> dict[str, Any]:
+    """Load the recorded answers behind matchday browsing, 2026-09-27.
+
+    ``scripts/record_history.py``: OpenLigaDB groups and (slimmed) season
+    fixtures of bl1, dfb and pl; bl1 matchdays 1, 2, 3, 5 and DFB-Pokal round 2;
+    ESPN ger.1 scoreboards of August and September; the slimmed summary of the
+    bl1 season opener.
+    """
+    return load_json("history/history-20260927.json.gz")
+
+
+def schedule_answers(league: str, season: int = 2026) -> dict[str, Any]:
+    """Return the season schedule answers (groups, season fixtures) of a league.
+
+    Leagues without a recording (bl2, the replay competition) get empty lists:
+    no ``matchdays``, no error.
+    """
+    history = load_history() if league in ("bl1", "dfb", "pl") else None
+    return {
+        f"{OLDB}/getavailablegroups/{league}/{season}": history["groups"][league]
+        if history
+        else [],
+        f"{OLDB}/getmatchdata/{league}/{season}": history["seasons"][league]
+        if history
+        else [],
+    }
+
+
 def summary_url(slug: str, event_id: str) -> str:
     """Return the URL the coordinator requests for a match summary."""
     return f"{ESPN}/{slug}/summary?event={event_id}"

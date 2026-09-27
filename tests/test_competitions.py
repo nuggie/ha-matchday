@@ -24,7 +24,14 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from .common import ESPN, OLDB, load_bundle, standings_url, summary_url
+from .common import (
+    ESPN,
+    OLDB,
+    load_bundle,
+    schedule_answers,
+    standings_url,
+    summary_url,
+)
 from custom_components.matchday.const import COMPETITIONS, CONF_COMPETITION, DOMAIN
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "compare_shadow.py"
@@ -53,6 +60,7 @@ def mock_bundle(aioclient_mock: AiohttpClientMocker, bundle: dict[str, Any]) -> 
         f"{OLDB}/getmatchdata/{league}/{season}/{bundle['matchday']}": bundle[
             "matches"
         ],
+        **schedule_answers(league, season),
     }
     for month, scoreboard in bundle["scoreboards"].items():
         answers[f"{ESPN}/{slug}/scoreboard?dates={month}"] = scoreboard

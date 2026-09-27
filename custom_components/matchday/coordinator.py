@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 from .api import MatchdayApiError
 from .api.espn import EspnClient, scoreboard_months
 from .api.openligadb import OldbMatch, OpenLigaDbClient
+from .archive import MatchdayArchive
 from .const import DOMAIN, LOGGER, Competition
 from .logic.matchday import (
     INTERVAL_IDLE,
@@ -58,6 +59,8 @@ class MatchdayData:
     table: list[dict[str, Any]] | None = None
     table_live: bool = False
     standings_updated: datetime | None = None
+    # All matchdays of the season (``MatchdayArchive.matchdays``).
+    matchdays: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def pick(self) -> MatchdayPick:
@@ -75,8 +78,9 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
 
     Match summaries and the league table ride along: summaries only for running
     and just finished matches (``SummaryTracker``), standings every 5 to 30
-    minutes (``standings_interval``). Their failures never fail the update; the
-    last known details and table stay.
+    minutes (``standings_interval``), the season's matchday list every six hours
+    (``MatchdayArchive``). Their failures never fail the update; the last known
+    details, table and matchday list stay.
     """
 
     config_entry: MatchdayConfigEntry
@@ -113,6 +117,8 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
         self._names: list[dict[str, Any]] = []
         self._names_at: datetime | None = None
         self._base_table: list[dict[str, Any]] | None = None
+        # Other matchdays on request, and the season's matchday list.
+        self.archive = MatchdayArchive(hass, entry, competition, self._oldb, self._espn)
 
     async def _async_pick_matchday(self) -> MatchdayPick:
         """Decide which matchday to show."""
@@ -181,6 +187,8 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
         )
         if self.competition.has_table:
             await self._async_update_table(data)
+        await self.archive.async_refresh_schedule(pick.season, dt_util.utcnow())
+        data.matchdays = self.archive.matchdays(pick.season)
         self.update_interval = update_interval(matches, window, today, dt_util.utcnow())
         return data
 

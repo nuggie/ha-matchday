@@ -1,0 +1,42 @@
+get_matchday:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          filter:
+            integration: matchday
+            domain: sensor
+    matchday:
+      required: false
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 99
+          mode: box
+    season:
+      required: false
+      example: 2026
+      selector:
+        number:
+          min: 1963
+          max: 2100
+          mode: box
+get_match_details:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          filter:
+            integration: matchday
+            domain: sensor
+    match_id:
+      required: true
+      example: 83183
+      selector:
+        number:
+          min: 1
+          max: 2147483647
+          mode: box

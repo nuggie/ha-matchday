@@ -39,7 +39,7 @@ def default_season(now: datetime) -> int:
     return now.year if now.month >= 7 else now.year - 1
 
 
-def _group_order_id(match: Mapping[str, Any] | None) -> int:
+def group_order_id(match: Mapping[str, Any] | None) -> int:
     """Return the matchday number of an OpenLigaDB match, 0 if unknown."""
     if not match:
         return 0
@@ -76,8 +76,8 @@ def pick_matchday(
     fallback_season = previous.season if previous else default_season(now)
     last_kickoff = parse_utc(last_match.get("matchDateTimeUTC")) if last_match else None
     next_kickoff = parse_utc(next_match.get("matchDateTimeUTC")) if next_match else None
-    last_group = _group_order_id(last_match) if last_kickoff else 0
-    next_group = _group_order_id(next_match) if next_kickoff else 0
+    last_group = group_order_id(last_match) if last_kickoff else 0
+    next_group = group_order_id(next_match) if next_kickoff else 0
 
     source: Mapping[str, Any] | None = None
     if last_group and next_group and last_kickoff and next_kickoff:
@@ -91,7 +91,7 @@ def pick_matchday(
         if previous is not None:
             return previous
         return MatchdayPick(1, fallback_season)
-    return MatchdayPick(_group_order_id(source), _season(source, default_season(now)))
+    return MatchdayPick(group_order_id(source), _season(source, default_season(now)))
 
 
 def round_window(matches: Iterable[Mapping[str, Any]]) -> tuple[date, date] | None:

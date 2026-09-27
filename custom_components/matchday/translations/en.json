@@ -23,5 +23,59 @@
         "name": "Table"
       }
     }
+  },
+  "exceptions": {
+    "invalid_entity": {
+      "message": "{entity_id} is not the matchday sensor of a Matchday competition."
+    },
+    "entry_not_loaded": {
+      "message": "The competition of {entity_id} is not loaded."
+    },
+    "matchday_required": {
+      "message": "Choose a matchday for season {season}."
+    },
+    "unknown_matchday": {
+      "message": "{competition} has no matchday {matchday} in season {season}."
+    },
+    "unknown_match": {
+      "message": "{competition} has no match with id {match_id}."
+    },
+    "api_error": {
+      "message": "Fetching the matchday failed: {error}"
+    }
+  },
+  "services": {
+    "get_matchday": {
+      "name": "Get matchday",
+      "description": "Returns the matches of a matchday of a competition, in the format of the matchday sensor's matches attribute.",
+      "fields": {
+        "entity_id": {
+          "name": "Matchday sensor",
+          "description": "The matchday sensor of the competition."
+        },
+        "matchday": {
+          "name": "Matchday",
+          "description": "Number of the matchday or round. Default: the matchday the sensor shows."
+        },
+        "season": {
+          "name": "Season",
+          "description": "Year the season starts in (2026 for 2026/27). Default: the season the sensor shows."
+        }
+      }
+    },
+    "get_match_details": {
+      "name": "Get match details",
+      "description": "Returns substitutions, statistics, lineups, half-time score and penalty shootout of a match.",
+      "fields": {
+        "entity_id": {
+          "name": "Matchday sensor",
+          "description": "The matchday sensor of the competition."
+        },
+        "match_id": {
+          "name": "Match ID",
+          "description": "OpenLigaDB id of the match (matchID in the matches attribute)."
+        }
+      }
+    }
   }
 }

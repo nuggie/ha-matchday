@@ -43,7 +43,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
-from .common import ESPN, FIXTURES, OLDB, oldb_match
+from .common import ESPN, FIXTURES, OLDB, oldb_match, schedule_answers
 from custom_components.matchday.const import CONF_COMPETITION, DOMAIN, Competition
 from custom_components.matchday.coordinator import MatchdayCoordinator
 
@@ -277,6 +277,9 @@ class Replay:
                 f"{ESPN}/{recording.slug}/summary?event={event_id}",
                 side_effect=self._summary_responder(event_id),
             )
+        # The season schedule (matchdays attribute) is not part of the replay.
+        for url, answer in schedule_answers(league, SEASON).items():
+            aioclient_mock.get(url, json=answer)
 
     def _event_ids(self) -> set[str]:
         return {

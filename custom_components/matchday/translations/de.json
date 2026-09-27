@@ -23,5 +23,59 @@
         "name": "Tabelle"
       }
     }
+  },
+  "exceptions": {
+    "invalid_entity": {
+      "message": "{entity_id} ist nicht der Spieltag-Sensor eines Matchday-Wettbewerbs."
+    },
+    "entry_not_loaded": {
+      "message": "Der Wettbewerb von {entity_id} ist nicht geladen."
+    },
+    "matchday_required": {
+      "message": "Für die Saison {season} bitte einen Spieltag angeben."
+    },
+    "unknown_matchday": {
+      "message": "{competition} hat in der Saison {season} keinen Spieltag {matchday}."
+    },
+    "unknown_match": {
+      "message": "{competition} hat kein Spiel mit der ID {match_id}."
+    },
+    "api_error": {
+      "message": "Abruf des Spieltags fehlgeschlagen: {error}"
+    }
+  },
+  "services": {
+    "get_matchday": {
+      "name": "Spieltag abrufen",
+      "description": "Liefert die Spiele eines Spieltags eines Wettbewerbs im Format des matches-Attributs des Spieltag-Sensors.",
+      "fields": {
+        "entity_id": {
+          "name": "Spieltag-Sensor",
+          "description": "Der Spieltag-Sensor des Wettbewerbs."
+        },
+        "matchday": {
+          "name": "Spieltag",
+          "description": "Nummer des Spieltags bzw. der Runde. Standard: der Spieltag, den der Sensor zeigt."
+        },
+        "season": {
+          "name": "Saison",
+          "description": "Startjahr der Saison (2026 für 2026/27). Standard: die Saison, die der Sensor zeigt."
+        }
+      }
+    },
+    "get_match_details": {
+      "name": "Spieldetails abrufen",
+      "description": "Liefert Wechsel, Statistiken, Aufstellungen, Halbzeitstand und Elfmeterschießen eines Spiels.",
+      "fields": {
+        "entity_id": {
+          "name": "Spieltag-Sensor",
+          "description": "Der Spieltag-Sensor des Wettbewerbs."
+        },
+        "match_id": {
+          "name": "Spiel-ID",
+          "description": "OpenLigaDB-ID des Spiels (matchID im matches-Attribut)."
+        }
+      }
+    }
   }
 }

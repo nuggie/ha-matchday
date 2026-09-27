@@ -22,6 +22,7 @@ from .common import (
     load_bundle,
     load_json,
     oldb_match,
+    schedule_answers,
     standings_url,
     summary_url,
 )
@@ -65,11 +66,13 @@ def mock_sources(
     summaries: dict[str, Any] | None = None,
     standings: Any = STANDINGS,
     oldb_table: Any = OLDB_TABLE,
+    extra: dict[str, Any] | None = None,
 ) -> None:
     """Register answers; a value that is an HTTPStatus becomes an error answer.
 
     Summaries default to the recorded ones of matchday 4, standings and the
-    OpenLigaDB table to those recorded on 2026-09-27.
+    OpenLigaDB table to those recorded on 2026-09-27, the season schedule to the
+    recorded one. ``extra`` adds or replaces answers by URL.
     """
     aioclient_mock.clear_requests()
     answers: dict[str, Any] = {
@@ -77,6 +80,7 @@ def mock_sources(
         NEXT_URL: next_,
         standings_url("ger.1"): standings,
         f"{OLDB}/getbltable/bl1/2026": oldb_table,
+        **schedule_answers("bl1"),
     }
     for group, data in (
         matchdays if matchdays is not None else {4: MATCHDAY_4}
@@ -88,6 +92,7 @@ def mock_sources(
         answers[scoreboard_url(month)] = data
     for event_id, data in (summaries if summaries is not None else SUMMARIES).items():
         answers[summary_url("ger.1", event_id)] = data
+    answers.update(extra or {})
     for url, data in answers.items():
         if isinstance(data, HTTPStatus):
             aioclient_mock.get(url, status=data)

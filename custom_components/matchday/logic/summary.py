@@ -192,15 +192,26 @@ def parse_pso(summary: Mapping[str, Any]) -> dict[str, Any] | None:
     sides = _header_sides(summary)
     if sides is None:
         return None
-    home, away = sides
+    return pso_from_competitors(*sides)
+
+
+def pso_from_competitors(
+    home: Mapping[str, Any], away: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """Return the penalty shootout from two ESPN competitors, if they have one.
+
+    Summary headers and scoreboard events carry the same ``shootoutScore`` and
+    ``winner`` fields; the scoreboard sends integers, the summary floats, so the
+    scores are normalized to floats (the format the sensor has always shown).
+    """
     if home.get("shootoutScore") is None or away.get("shootoutScore") is None:
         return None
+    try:
+        team1, team2 = float(home["shootoutScore"]), float(away["shootoutScore"])
+    except (TypeError, ValueError):
+        return None
     winner = "team1" if home.get("winner") else "team2" if away.get("winner") else None
-    return {
-        "team1": home["shootoutScore"],
-        "team2": away["shootoutScore"],
-        "winner": winner,
-    }
+    return {"team1": team1, "team2": team2, "winner": winner}
 
 
 def parse_summary(summary: Mapping[str, Any], home_team_id: Any) -> dict[str, Any]:

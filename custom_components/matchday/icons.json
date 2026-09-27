@@ -5,5 +5,13 @@
         "default": "mdi:soccer-field"
       }
     }
+  },
+  "services": {
+    "get_matchday": {
+      "service": "mdi:calendar-search"
+    },
+    "get_match_details": {
+      "service": "mdi:clipboard-text-search-outline"
+    }
   }
 }

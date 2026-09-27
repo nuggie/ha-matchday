@@ -13,6 +13,10 @@ class MatchdayApiError(Exception):
     """A data source could not be reached or answered with something unusable."""
 
 
+class MatchdayNotFoundError(MatchdayApiError):
+    """A data source answered HTTP 404: the requested object does not exist."""
+
+
 async def async_get_json(
     session: aiohttp.ClientSession,
     url: str,
@@ -22,10 +26,13 @@ async def async_get_json(
 
     Raises:
         MatchdayApiError: on network errors, timeouts, non-200 answers or bodies
-            that are not JSON. Callers decide whether that is fatal.
+            that are not JSON (``MatchdayNotFoundError`` for HTTP 404). Callers
+            decide whether that is fatal.
     """
     try:
         async with session.get(url, params=params, timeout=REQUEST_TIMEOUT) as resp:
+            if resp.status == 404:
+                raise MatchdayNotFoundError(f"{url} answered HTTP 404")
             if resp.status != 200:
                 raise MatchdayApiError(f"{url} answered HTTP {resp.status}")
             # OpenLigaDB occasionally sends JSON as text/plain; accept any type.

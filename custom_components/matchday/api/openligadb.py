@@ -6,7 +6,7 @@ from typing import Any
 
 import aiohttp
 
-from . import MatchdayApiError, async_get_json
+from . import MatchdayApiError, MatchdayNotFoundError, async_get_json
 
 BASE_URL = "https://api.openligadb.de"
 
@@ -53,6 +53,60 @@ class OpenLigaDbClient:
                 f"getmatchdata/{league}/{season}/{group_order_id} did not return a list"
             )
         return [match for match in data if _as_match(match) is not None]
+
+    async def async_get_season_matches(
+        self, league: str, season: int
+    ) -> list[OldbMatch]:
+        """Return all matches of a season (all matchdays, several hundred KB).
+
+        Raises:
+            MatchdayApiError: if the answer is not a list.
+        """
+        data = await async_get_json(
+            self._session, f"{BASE_URL}/getmatchdata/{league}/{season}"
+        )
+        if not isinstance(data, list):
+            raise MatchdayApiError(
+                f"getmatchdata/{league}/{season} did not return a list"
+            )
+        return [match for match in data if _as_match(match) is not None]
+
+    async def async_get_match(self, match_id: int) -> OldbMatch | None:
+        """Return one match by its OpenLigaDB id, ``None`` if there is no such match.
+
+        Raises:
+            MatchdayApiError: on errors other than "not found".
+        """
+        try:
+            data = await async_get_json(
+                self._session, f"{BASE_URL}/getmatchdata/{match_id}"
+            )
+        except MatchdayNotFoundError:
+            return None
+        return _as_match(data)
+
+    async def async_get_available_groups(
+        self, league: str, season: int
+    ) -> list[dict[str, Any]]:
+        """Return the matchdays/rounds of a season (name, order id), also future ones.
+
+        Raises:
+            MatchdayApiError: if the answer is not a list.
+        """
+        data = await async_get_json(
+            self._session, f"{BASE_URL}/getavailablegroups/{league}/{season}"
+        )
+        if not isinstance(data, list):
+            raise MatchdayApiError(
+                f"getavailablegroups/{league}/{season} did not return a list"
+            )
+        return [
+            group
+            for group in data
+            if isinstance(group, dict)
+            and isinstance(group.get("groupOrderID"), int)
+            and not isinstance(group.get("groupOrderID"), bool)
+        ]
 
     async def async_get_table(self, league: str, season: int) -> list[dict[str, Any]]:
         """Return the league table (only its team names and crests are used).

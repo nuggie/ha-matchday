@@ -21,7 +21,7 @@ matchday, German team names), while ESPN supplies live scores and match details.
 | Premier League | OpenLigaDB (privately maintained league `pl`) | ESPN |
 | Champions League, Europa League, Conference League | ESPN | ESPN |
 
-## Current state (0.3.0, phase 2)
+## Current state (0.4.0)
 
 Bundesliga, 2. Bundesliga, DFB-Pokal and Premier League (via the privately maintained
 OpenLigaDB league `pl`) are supported; one config entry per competition. Each gets:
@@ -35,8 +35,11 @@ OpenLigaDB league `pl`) are supported; one config entry per competition. Each ge
   `status` pre/live/ht/post, `minute`, `live_score`, `scorers`, `cards`, `oldb_score`, kickoff
   corrected from ESPN, and from the match summary `substitutions`, `ht_score`, `stats`
   — possession, shots, shots on target, corners as `[home, away]` — `lineups` and `pso`
-  (penalty shootout)), `matchday`, `season`, `competition`. `matches` is excluded from the
-  recorder (too large). For the Premier League `matchResults` is emptied (OpenLigaDB only has
+  (penalty shootout)), `matchday`, `season`, `competition`, and `matchdays` — all matchdays
+  or rounds of the season, `[{"matchday": 1, "name": "1. Spieltag", "first_kickoff":
+  "2026-08-28T18:30:00Z", "last_kickoff": "2026-08-30T15:30:00Z"}, …]` (kickoffs `null` for cup
+  rounds without fixtures yet; refreshed every 6 hours). `matches` and `matchdays` are excluded
+  from the recorder. For the Premier League `matchResults` is emptied (OpenLigaDB only has
   0:0 placeholders there).
 - **Matchday choice:** by date — the last or the next match, whichever is closer in time, so
   the display switches in the middle of a break. A running match blocks the switch.
@@ -63,6 +66,63 @@ OpenLigaDB league `pl`) are supported; one config entry per competition. Each ge
 - Standings every 30 minutes, every 10 minutes around running or just finished matches, every
   5 minutes while a finished match waits to be booked; OpenLigaDB names every 6 hours.
 
+### Browsing matchdays (actions)
+
+Two actions return data only (`response_variable` in scripts, `callService` with
+`return_response` in cards). Both take the **matchday sensor** of a competition as `entity_id`.
+
+**`matchday.get_matchday`** — `matchday` and `season` are optional (default: what the sensor
+shows; for another season `matchday` is required).
+
+```yaml
+action: matchday.get_matchday
+data:
+  entity_id: sensor.matchday_bundesliga_spieltag
+  matchday: 3
+response_variable: result
+```
+
+```json
+{"competition": "bl1", "season": 2026, "matchday": 3, "name": "3. Spieltag",
+ "is_current": false, "matches": [ ... ]}
+```
+
+`matches` has exactly the format of the sensor attribute. The shown matchday comes straight
+from the sensor (`is_current: true`). Other matchdays are merged from OpenLigaDB and the ESPN
+scoreboard like the shown one, but without match summaries: `substitutions`, `stats`,
+`lineups` and `ht_score` are empty (`[]`/`null`), `pso` (penalty shootout) is filled from the
+scoreboard. Future matchdays (first kickoff more than a day away) come from OpenLigaDB alone,
+all `pre`. A cup round without fixtures yet returns its name and `matches: []`.
+
+**`matchday.get_match_details`** — the summary fields of one match, by its OpenLigaDB
+`matchID`:
+
+```yaml
+action: matchday.get_match_details
+data:
+  entity_id: sensor.matchday_bundesliga_spieltag
+  match_id: 83156
+response_variable: details
+```
+
+```json
+{"match_id": 83156, "substitutions": [ ... ], "stats": {"possession": [59, 41], ...},
+ "lineups": {"home": {...}, "away": {...}}, "ht_score": "1:0", "pso": null}
+```
+
+Matches of the shown matchday come from the sensor; others from the ESPN summary (only for
+matches ESPN knows that have started).
+
+**Caching.** Settled matchdays (all matches finished and paired with ESPN, last kickoff more
+than a day ago) and the details of settled matches are stored for good per competition
+(`.storage/matchday.<entry id>`, at most 40 matchdays and 400 match details, the oldest seasons
+go first; deleted with the config entry). Everything else is kept in memory for 15 minutes
+(details of a running match for one minute), as are ESPN month scoreboards: browsing matchdays
+2 and 3 costs one OpenLigaDB request each and one scoreboard request in total, asking again
+costs nothing. Concurrent requests for the same matchday or match share one fetch. Unknown
+entities, matchdays or matches raise a validation error; a failing source raises an error for
+the action only — the sensors are not affected.
+
 **Not yet:** goal/kick-off events; UEFA competitions (setting one up fails with a clear error
 until phase 3); an ESPN-only Premier League mode.
 
@@ -83,6 +143,11 @@ Tests use recorded OpenLigaDB/ESPN answers from `tests/fixtures/`.
 `--template-sensors` also the template sensors to compare against) into
 `tests/fixtures/competitions/<competition>-<date>.json.gz`; `tests/test_competitions.py` runs
 all four competitions against them.
+`scripts/record_history.py` records what matchday browsing asks for (season schedules of
+bl1/dfb/pl, bl1 matchdays 1-3 and 5, cup round 2, ESPN scoreboards, one summary) into
+`tests/fixtures/history/`. `scripts/check_history.py --competition bl1 --matchdays 1-4`
+cross-checks browsed matchdays against the live APIs (pairing, ESPN vs OpenLigaDB final
+scores).
 
 **Live recordings and replay.** Finished matchdays cannot show how live data evolves, so
 `scripts/record_espn.py` records a competition day from ESPN (every 30 s, only changed

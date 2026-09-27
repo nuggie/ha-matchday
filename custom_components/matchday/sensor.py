@@ -45,8 +45,9 @@ class MatchdaySensor(CoordinatorEntity[MatchdayCoordinator], SensorEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "matchday"
     # ``matches`` is 40+ KB on a full matchday, far above the recorder's 16 KB
-    # attribute limit, and changes every minute during live matches.
-    _unrecorded_attributes = frozenset({"matches"})
+    # attribute limit, and changes every minute during live matches;
+    # ``matchdays`` (34-38 entries) is a static list, no use in the history.
+    _unrecorded_attributes = frozenset({"matches", "matchdays"})
 
     def __init__(self, coordinator: MatchdayCoordinator) -> None:
         """Initialize the sensor."""
@@ -75,6 +76,7 @@ class MatchdaySensor(CoordinatorEntity[MatchdayCoordinator], SensorEntity):
             "matchday": data.matchday,
             "season": data.season,
             "competition": self.coordinator.competition.key,
+            "matchdays": data.matchdays,
         }
 
 
