@@ -53,6 +53,20 @@ uvx ruff check custom_components tests scripts
 
 Tests use recorded OpenLigaDB/ESPN answers from `tests/fixtures/`.
 
+**Live recordings and replay.** Finished matchdays cannot show how live data evolves, so
+`scripts/record_espn.py` records a competition day from ESPN (every 30 s, only changed
+scoreboards and live match summaries, into `recordings/`, which is not versioned):
+
+```bash
+scripts/record_espn.py --slug uefa.nations --date 20260926 --until "2026-09-26 23:15"
+```
+
+`scripts/make_replay_fixture.py` cuts a slim, reproducible fixture out of it (selected games,
+only snapshots in which they change; `--game`, `--summaries`). The committed
+`tests/fixtures/replay/uefa.nations-20260926.json.gz` holds ESP @ ENG, CRO @ CZE (VAR) and
+SCO @ SVN. `tests/test_replay.py` replays it against a synthetic OpenLigaDB matchday with a
+simulated clock that advances in the coordinator's own `update_interval` (`tests/replay.py`).
+
 ## Installation
 
 Not available through HACS yet.
