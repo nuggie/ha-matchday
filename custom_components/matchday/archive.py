@@ -40,7 +40,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import MatchdayApiError
 from .api.espn import EspnClient, EspnEvent
-from .api.openligadb import OldbMatch, OpenLigaDbClient
+from .api.openligadb import OldbMatch, OpenLigaDbClient, fix_crests
 from .const import DOMAIN, LOGGER, Competition
 from .logic import parse_utc
 from .logic.matchday import LIVE_STATUSES, group_order_id
@@ -368,8 +368,12 @@ class MatchdayArchive:
             result = self._cached(key) or await self._shared(
                 key, partial(self._async_fetch_matchday, season, matchday)
             )
+        # Stored matchdays may still carry a crest URL that died after storing.
         return BrowsedMatchday(
-            result.season, result.matchday, result.name, copy.deepcopy(result.matches)
+            result.season,
+            result.matchday,
+            result.name,
+            [fix_crests(match) for match in copy.deepcopy(result.matches)],
         )
 
     async def _async_fetch_matchday(

@@ -32,6 +32,7 @@ from .common import (
     standings_url,
     summary_url,
 )
+from custom_components.matchday.api.openligadb import CREST_OVERRIDES
 from custom_components.matchday.const import COMPETITIONS, CONF_COMPETITION, DOMAIN
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "compare_shadow.py"
@@ -196,7 +197,16 @@ async def test_table_against_template_sensor(
 
     _report, deviating = script.compare_table(template, as_state(state))
     assert deviating == 0
-    assert state.attributes["table"] == template["attributes"]["table"]
+    # The recording still has crest URLs that died later (CREST_OVERRIDES).
+    expected = [
+        {**row, "teamIconUrl": ours["teamIconUrl"]}
+        if ours["teamIconUrl"] in CREST_OVERRIDES.values()
+        else row
+        for row, ours in zip(
+            template["attributes"]["table"], state.attributes["table"], strict=True
+        )
+    ]
+    assert state.attributes["table"] == expected
     assert state.attributes["live"] is False
     assert state.state == bundle["recorded"].replace("Z", "+00:00")
 
