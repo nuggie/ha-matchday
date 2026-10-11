@@ -6,17 +6,10 @@ from typing import Any
 
 import aiohttp
 
+from ..crests import CRESTS
 from . import MatchdayApiError, MatchdayNotFoundError, async_get_json
 
 BASE_URL = "https://api.openligadb.de"
-
-# Crests whose OpenLigaDB URL is dead (the data is community-maintained), by
-# OpenLigaDB team id. Remove an entry once OpenLigaDB has a working URL again.
-CREST_OVERRIDES: dict[int, str] = {
-    # bundesliga-reisefuehrer.de redirects to bundesliga.com, which answers 403
-    # (seen 2026-10-11).
-    6: "https://upload.wikimedia.org/wikipedia/de/f/f7/Bayer_Leverkusen_Logo.svg",
-}
 
 type OldbMatch = dict[str, Any]
 
@@ -130,23 +123,23 @@ class OpenLigaDbClient:
                 f"getbltable/{league}/{season} did not return a list"
             )
         return [
-            _fix_crest(team, "teamInfoId")
+            _apply_crest(team, "teamInfoId")
             for team in data
             if isinstance(team, dict) and isinstance(team.get("teamName"), str)
         ]
 
 
-def _fix_crest(team: Any, id_key: str = "teamId") -> Any:
-    """Replace a known-dead crest URL of ``team`` in place (see CREST_OVERRIDES)."""
-    if isinstance(team, dict) and (url := CREST_OVERRIDES.get(team.get(id_key))):
+def _apply_crest(team: Any, id_key: str = "teamId") -> Any:
+    """Set the crest of ``team`` from CRESTS in place, if it has an entry."""
+    if isinstance(team, dict) and (url := CRESTS.get(team.get(id_key))):
         team["teamIconUrl"] = url
     return team
 
 
-def fix_crests(match: OldbMatch) -> OldbMatch:
-    """Replace known-dead crest URLs of both teams of ``match`` in place."""
-    _fix_crest(match.get("team1"))
-    _fix_crest(match.get("team2"))
+def apply_crests(match: OldbMatch) -> OldbMatch:
+    """Set the crests of both teams of ``match`` from CRESTS in place."""
+    _apply_crest(match.get("team1"))
+    _apply_crest(match.get("team2"))
     return match
 
 
@@ -157,5 +150,5 @@ def _as_match(data: Any) -> OldbMatch | None:
         and isinstance(data.get("matchDateTimeUTC"), str)
         and isinstance(data.get("group"), dict)
     ):
-        return fix_crests(data)
+        return apply_crests(data)
     return None

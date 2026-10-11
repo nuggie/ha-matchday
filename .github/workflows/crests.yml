@@ -1,0 +1,20 @@
+name: Crests
+
+on:
+  push:
+    paths:
+      - custom_components/matchday/crests.py
+      - scripts/check_crests.py
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+jobs:
+  crests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python3 scripts/check_crests.py
