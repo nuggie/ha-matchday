@@ -3,10 +3,10 @@
 Competitions with an OpenLigaDB source (Bundesliga, 2. Bundesliga, DFB-Pokal,
 Premier League) get a matchday sensor fed by OpenLigaDB (fixtures, matchday) and
 ESPN (live data, match summaries), leagues also a table sensor (ESPN standings
-with live delta). The UEFA competitions run on ESPN alone (rounds cut from the
-season's kickoffs; league phase only, the knockout view follows). The actions
-``matchday.get_matchday`` and ``matchday.get_match_details`` browse the other
-matchdays of the OpenLigaDB competitions.
+with live delta). The UEFA competitions run on ESPN alone: rounds cut from the
+season's events (qualifying and knockout legs, league phase matchdays), second
+legs with their aggregate. The actions ``matchday.get_matchday`` and
+``matchday.get_match_details`` browse the other matchdays and rounds.
 """
 
 from __future__ import annotations
@@ -36,8 +36,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatchdayConfigEntry) -> 
     """Set up a Matchday competition from a config entry."""
     competition = COMPETITIONS[entry.data[CONF_COMPETITION]]
     coordinator = MatchdayCoordinator(hass, entry, competition)
-    if coordinator.archive is not None:
-        await coordinator.archive.async_load()
+    await coordinator.archive.async_load()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -46,9 +45,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: MatchdayConfigEntry) -> 
 
 async def async_unload_entry(hass: HomeAssistant, entry: MatchdayConfigEntry) -> bool:
     """Unload a Matchday competition."""
-    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unloaded and (archive := entry.runtime_data.archive) is not None:
-        await archive.async_unload()
+    if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        await entry.runtime_data.archive.async_unload()
     return unloaded
 
 

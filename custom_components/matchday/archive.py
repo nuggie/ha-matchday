@@ -170,65 +170,25 @@ def _valid_data(data: Any) -> dict[str, Any]:
     return result
 
 
-class MatchdayArchive:
-    """Fetch and cache matchdays and match details of one competition."""
+class CachingArchive:
+    """Memory cache and shared fetches behind the archives of a competition."""
 
     def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-        competition: Competition,
-        oldb: OpenLigaDbClient,
-        espn: EspnClient,
+        self, hass: HomeAssistant, entry: ConfigEntry, competition: Competition
     ) -> None:
-        """Initialize; call ``async_load`` before use."""
-        if competition.openligadb_shortcut is None:
-            raise ValueError(f"{competition.key} has no OpenLigaDB source")
+        """Initialize with an empty memory cache."""
         self._hass = hass
         self._entry = entry
         self._competition = competition
-        self._league = competition.openligadb_shortcut
-        self._oldb = oldb
-        self._espn = espn
-        self._store: Store[dict[str, Any]] = Store(
-            hass, STORAGE_VERSION, _storage_key(entry.entry_id)
-        )
-        self._data = _empty_data()
-        self._dirty = False
         self._memory: dict[tuple[Any, ...], tuple[datetime, Any]] = {}
         self._inflight: dict[tuple[Any, ...], asyncio.Task[Any]] = {}
-        self._schedule_retry_at: datetime | None = None
 
-    # --- lifecycle ------------------------------------------------------------
-
-    async def async_load(self) -> None:
-        """Load the stored matchdays, details and schedule."""
-        self._data = _valid_data(await self._store.async_load())
-
-    async def async_unload(self) -> None:
-        """Cancel running fetches, write pending changes, drop the memory cache."""
+    def _drop_memory(self) -> None:
+        """Cancel running fetches and drop the memory cache."""
         for task in self._inflight.values():
             task.cancel()
         self._inflight.clear()
         self._memory.clear()
-        if self._dirty:
-            self._dirty = False
-            await self._store.async_save(self._data)
-
-    @staticmethod
-    async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
-        """Delete the stored data of a removed config entry."""
-        await Store[dict[str, Any]](
-            hass, STORAGE_VERSION, _storage_key(entry_id)
-        ).async_remove()
-
-    def _save(self) -> None:
-        self._dirty = True
-        self._store.async_delay_save(self._data_to_save, SAVE_DELAY)
-
-    def _data_to_save(self) -> dict[str, Any]:
-        self._dirty = False
-        return self._data
 
     # --- memory cache and shared fetches --------------------------------------
 
@@ -280,6 +240,60 @@ class MatchdayArchive:
         if not task.cancelled():
             # The callers got it through the shield; do not log it as unhandled.
             task.exception()
+
+
+class MatchdayArchive(CachingArchive):
+    """Fetch and cache matchdays and match details of one competition."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        competition: Competition,
+        oldb: OpenLigaDbClient,
+        espn: EspnClient,
+    ) -> None:
+        """Initialize; call ``async_load`` before use."""
+        if competition.openligadb_shortcut is None:
+            raise ValueError(f"{competition.key} has no OpenLigaDB source")
+        super().__init__(hass, entry, competition)
+        self._league = competition.openligadb_shortcut
+        self._oldb = oldb
+        self._espn = espn
+        self._store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, _storage_key(entry.entry_id)
+        )
+        self._data = _empty_data()
+        self._dirty = False
+        self._schedule_retry_at: datetime | None = None
+
+    # --- lifecycle ------------------------------------------------------------
+
+    async def async_load(self) -> None:
+        """Load the stored matchdays, details and schedule."""
+        self._data = _valid_data(await self._store.async_load())
+
+    async def async_unload(self) -> None:
+        """Cancel running fetches, write pending changes, drop the memory cache."""
+        self._drop_memory()
+        if self._dirty:
+            self._dirty = False
+            await self._store.async_save(self._data)
+
+    @staticmethod
+    async def async_remove_store(hass: HomeAssistant, entry_id: str) -> None:
+        """Delete the stored data of a removed config entry."""
+        await Store[dict[str, Any]](
+            hass, STORAGE_VERSION, _storage_key(entry_id)
+        ).async_remove()
+
+    def _save(self) -> None:
+        self._dirty = True
+        self._store.async_delay_save(self._data_to_save, SAVE_DELAY)
+
+    def _data_to_save(self) -> dict[str, Any]:
+        self._dirty = False
+        return self._data
 
     # --- season schedule ------------------------------------------------------
 

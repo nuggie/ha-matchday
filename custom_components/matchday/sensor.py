@@ -77,6 +77,7 @@ class MatchdaySensor(CoordinatorEntity[MatchdayCoordinator], SensorEntity):
             "season": data.season,
             "competition": self.coordinator.competition.key,
             "matchdays": data.matchdays,
+            "phase": data.phase,
         }
 
 

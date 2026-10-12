@@ -16,6 +16,11 @@ STANDINGS_URL = "https://site.api.espn.com/apis/v2/sports/soccer"
 
 type EspnEvent = dict[str, Any]
 
+# Without ``limit`` ESPN cuts a scoreboard at 100 events: the July 2026 scoreboard
+# of the Conference League qualifying has 150 (two rounds, the second legs were
+# missing). 500 covers any month of any competition here.
+SCOREBOARD_LIMIT = "500"
+
 
 def scoreboard_months(first: date, last: date) -> list[str]:
     """Return the ``YYYYMM`` values needed to cover ``first`` .. ``last``.
@@ -46,7 +51,9 @@ class EspnClient:
             MatchdayApiError: if the answer has no ``events`` list.
         """
         data = await async_get_json(
-            self._session, f"{BASE_URL}/{slug}/scoreboard", params={"dates": month}
+            self._session,
+            f"{BASE_URL}/{slug}/scoreboard",
+            params={"dates": month, "limit": SCOREBOARD_LIMIT},
         )
         events = data.get("events") if isinstance(data, dict) else None
         if not isinstance(events, list):

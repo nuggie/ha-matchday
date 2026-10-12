@@ -18,7 +18,8 @@ from .api.espn import EspnClient, scoreboard_months
 from .api.openligadb import OldbMatch, OpenLigaDbClient
 from .archive import MatchdayArchive
 from .const import DOMAIN, LOGGER, Competition
-from .logic.espn_only import Round, pick_round, round_matches, season_rounds
+from .espn_archive import EspnArchive
+from .logic.espn_only import Round, annotate_ties, pick_round, round_matches
 from .logic.matchday import (
     INTERVAL_IDLE,
     MatchdayPick,
@@ -45,10 +46,6 @@ type MatchdayConfigEntry = ConfigEntry[MatchdayCoordinator]
 SUMMARY_CONCURRENCY = 4
 # Team names and crests from OpenLigaDB hardly ever change.
 NAMES_REFRESH = timedelta(hours=6)
-# ESPN-only competitions: the season's rounds (all scoreboard months) are
-# fetched this often, and again this long after a failure.
-ROUNDS_REFRESH = timedelta(hours=6)
-ROUNDS_RETRY = timedelta(minutes=15)
 
 
 @dataclass(slots=True)
@@ -67,6 +64,9 @@ class MatchdayData:
     standings_updated: datetime | None = None
     # All matchdays of the season (``MatchdayArchive.matchdays``).
     matchdays: list[dict[str, Any]] = field(default_factory=list)
+    # ESPN-only: the stage of the shown round (``league-phase``, ``round-of-16``,
+    # ...); ``None`` for the OpenLigaDB competitions.
+    phase: str | None = None
 
     @property
     def pick(self) -> MatchdayPick:
@@ -78,8 +78,9 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
     """Fetch OpenLigaDB + ESPN for one competition and merge them.
 
     Competitions without OpenLigaDB (UEFA) run on ESPN alone: the season's rounds
-    come from all its scoreboard months (``logic/espn_only.py``, every six
-    hours), the shown round's matches from the scoreboards of its months.
+    come from all its scoreboard months (``EspnArchive``, every six hours), the
+    shown round's matches from the scoreboards of its months, second legs with
+    their aggregate (``annotate_ties``).
 
     Polling adapts to the matchday: every minute while a match is live or about
     to start, every five minutes around the matchday, every 30 minutes otherwise.
@@ -89,7 +90,8 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
     Match summaries and the league table ride along: summaries only for running
     and just finished matches (``SummaryTracker``), standings every 5 to 30
     minutes (``standings_interval``), the season's matchday list every six hours
-    (``MatchdayArchive``). Their failures never fail the update; the last known
+    (``MatchdayArchive`` / ``EspnArchive``). Their failures never fail the update
+    (the ESPN-only season only until it is known); the last known
     details, table and matchday list stay.
     """
 
@@ -125,17 +127,11 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
         self._names: list[dict[str, Any]] = []
         self._names_at: datetime | None = None
         self._base_table: list[dict[str, Any]] | None = None
-        # ESPN-only: the season's rounds and when they were fetched.
-        self._rounds: list[Round] = []
-        self._rounds_season: int | None = None
-        self._rounds_at: datetime | None = None
-        self._rounds_retry_at: datetime | None = None
-        # Other matchdays on request, and the season's matchday list
-        # (OpenLigaDB competitions only).
-        self.archive: MatchdayArchive | None = (
+        # Other matchdays on request, and the season's matchday list.
+        self.archive: MatchdayArchive | EspnArchive = (
             MatchdayArchive(hass, entry, competition, self._oldb, self._espn)
             if self._oldb is not None
-            else None
+            else EspnArchive(hass, entry, competition, self._espn)
         )
 
     async def _async_pick_matchday(self, oldb: OpenLigaDbClient) -> MatchdayPick:
@@ -160,7 +156,7 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
 
     async def _async_update_data(self) -> MatchdayData:
         """Fetch and merge the shown matchday."""
-        if self._oldb is None or self.archive is None:
+        if self._oldb is None or isinstance(self.archive, EspnArchive):
             return await self._async_update_espn_only()
         pick = await self._async_pick_matchday(self._oldb)
         try:
@@ -214,20 +210,22 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
 
     async def _async_update_espn_only(self) -> MatchdayData:
         """Fetch the shown round of an ESPN-only competition."""
+        archive = self.archive
+        if not isinstance(archive, EspnArchive):
+            raise TypeError(f"{self.competition.key} is no ESPN-only competition")
         now = dt_util.utcnow()
         season = default_season(dt_util.now())
-        await self._async_refresh_rounds(season, now)
-        if not self._rounds:
+        await archive.async_refresh_schedule(season, now)
+        rounds = archive.rounds(season)
+        if not rounds:
             raise UpdateFailed(f"ESPN {self.competition.espn_slug}: no rounds known")
 
         # Never switch away from a round while one of its matches is running.
         current: Round | None = None
         if self.data and any_live(self.data.matches):
-            current = next(
-                (r for r in self._rounds if r.number == self.data.matchday), None
-            )
+            current = next((r for r in rounds if r.number == self.data.matchday), None)
         if current is None:
-            current = pick_round(self._rounds, now)
+            current = pick_round(rounds, now)
         if current is None:
             raise UpdateFailed(f"ESPN {self.competition.espn_slug}: no round to show")
 
@@ -249,6 +247,8 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
                 f"ESPN {self.competition.espn_slug} returned none of the matches "
                 f"of {current.name}"
             )
+        # First legs come from the season, fresh events override it.
+        annotate_ties(matches, [*archive.season_events(season), *events])
         await self._async_update_summaries(matches)
 
         data = MatchdayData(
@@ -257,7 +257,8 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
             name=current.name,
             matches=matches,
             espn_queried=True,
-            matchdays=[r.as_matchday() for r in self._rounds],
+            matchdays=archive.matchdays(season),
+            phase=current.stage,
         )
         if self.competition.has_table:
             await self._async_update_table(data)
@@ -266,47 +267,6 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
             matches, window, dt_util.now().date(), dt_util.utcnow()
         )
         return data
-
-    async def _async_refresh_rounds(self, season: int, now: datetime) -> None:
-        """Fetch the season's rounds when due; failures keep the old ones.
-
-        Main slug July to June, qualifying slug June to August. Any failing month
-        fails the refresh: a missing month would drop its rounds.
-        """
-        if (
-            self._rounds
-            and self._rounds_season == season
-            and self._rounds_at is not None
-            and now - self._rounds_at < ROUNDS_REFRESH
-        ):
-            return
-        if self._rounds_retry_at is not None and now < self._rounds_retry_at:
-            return
-        requests = [(self.competition.espn_slug, season_months(season, 7, 12))]
-        if self.competition.espn_qual_slug:
-            requests.append(
-                (self.competition.espn_qual_slug, season_months(season, 6, 3))
-            )
-        events: list[tuple[str, dict[str, Any]]] = []
-        try:
-            for slug, months in requests:
-                events.extend(
-                    (slug, event)
-                    for event in await self._espn.async_get_events(slug, months)
-                )
-        except MatchdayApiError as err:
-            LOGGER.debug("%s: season rounds unavailable: %s", self.competition.key, err)
-            self._rounds_retry_at = now + ROUNDS_RETRY
-            return
-        rounds = season_rounds(events)
-        if not rounds:
-            LOGGER.debug(
-                "%s: season %s has no rounds yet", self.competition.key, season
-            )
-            self._rounds_retry_at = now + ROUNDS_RETRY
-            return
-        self._rounds, self._rounds_season = rounds, season
-        self._rounds_at, self._rounds_retry_at = now, None
 
     async def _async_update_summaries(self, matches: list[dict[str, Any]]) -> None:
         """Fetch the summaries that are due and write all known details."""
@@ -405,13 +365,3 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
                 f"ESPN {self.competition.espn_slug} matched none of the matches "
                 "it matched before, keeping the previous data"
             )
-
-
-def season_months(season: int, first_month: int, count: int) -> list[str]:
-    """Return ``count`` consecutive ``YYYYMM`` values from ``first_month`` of ``season``."""
-    months: list[str] = []
-    year, month = season, first_month
-    for _ in range(count):
-        months.append(f"{year}{month:02d}")
-        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
-    return months

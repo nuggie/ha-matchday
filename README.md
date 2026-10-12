@@ -123,14 +123,18 @@ costs nothing. Concurrent requests for the same matchday or match share one fetc
 entities, matchdays or matches raise a validation error; a failing source raises an error for
 the action only — the sensors are not affected.
 
-**UEFA competitions** (Champions, Europa, Conference League) run on ESPN alone: the rounds of a
-season (qualifying legs, league phase matchdays) are cut from the kickoffs of all its scoreboard
-months, refreshed every six hours; the shown round is picked like an OpenLigaDB matchday. Their
-table comes from ESPN's league phase standings. Browsing other rounds is not supported for them
-yet.
+**UEFA competitions** (Champions, Europa, Conference League) run on ESPN alone. The rounds of a
+season are cut from the events of all its scoreboard months (refreshed every six hours): one round
+per leg of a two-legged stage (qualifying, knockout), league phase matchdays and the final by
+kickoff. The shown round is picked like an OpenLigaDB matchday. Each match carries `phase` (ESPN's
+stage, e.g. `league-phase`, `round-of-16`), `leg` (1, 2 or null) and, in a second leg, `aggregate`:
+`first_leg` and `score` (aggregate, live while it runs) from the match's team1/team2 side and
+`advances` (`team1`/`team2`) once the tie is decided; the penalty shootout (`pso`) comes straight
+from the scoreboard. The matchday sensor's `phase` attribute names the stage of the shown round.
+The table comes from ESPN's league phase standings. `matchday.get_matchday` browses the rounds of
+the current and earlier seasons, `matchday.get_match_details` fetches a match's summary.
 
-**Not yet:** goal/kick-off events; the UEFA knockout view (two legs, aggregate); an ESPN-only
-Premier League mode.
+**Not yet:** goal/kick-off events; an ESPN-only Premier League mode.
 
 `scripts/compare_shadow.py --competition bl1|bl2|dfb|pl|ucl|uel|uecl` compares both sensors with the template
 sensors they replace (`HA_TOKEN`, optional `HA_URL`; `--only matchday|table`).
