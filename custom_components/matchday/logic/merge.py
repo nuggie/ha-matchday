@@ -181,7 +181,10 @@ def pair_matches(
 
     1. kickoff equal to the minute and both normalized team names equal,
     2. same pairing with a different kickoff within four days (rescheduled game),
-    3. time-slot fallback: exactly one unpaired OpenLigaDB match and exactly one
+    3. kickoff equal to the minute and one of the two names equal (the other one
+       spelled differently, e.g. "Hertha BSC" vs "Hertha Berlin"); a team plays
+       only one match per kickoff, so this is unambiguous,
+    4. time-slot fallback: exactly one unpaired OpenLigaDB match and exactly one
        unused ESPN event share the kickoff minute (names spelled too differently).
     """
     parsed = _parse_events(events, normalize)
@@ -225,7 +228,21 @@ def pair_matches(
             ),
         )
 
-    # Stage 3: unique open match per kickoff slot on both sides.
+    # Stage 3: kickoff minute + one of the two names. Without it, two such teams
+    # in the same slot (Hertha + Bielefeld, 11.10.2026) defeat stage 4.
+    for index, kickoff in enumerate(kickoffs):
+        if index in paired or kickoff is None:
+            continue
+        slot, (home, away) = _minute(kickoff), names[index]
+        claim(
+            index,
+            lambda e, slot=slot, home=home, away=away: (
+                _minute(e.kickoff) == slot
+                and (e.home_norm == home or e.away_norm == away)
+            ),
+        )
+
+    # Stage 4: unique open match per kickoff slot on both sides.
     for index, kickoff in enumerate(kickoffs):
         if index in paired or kickoff is None:
             continue

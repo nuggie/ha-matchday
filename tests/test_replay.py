@@ -142,10 +142,11 @@ def detail_entries(event: dict[str, Any], scoring: bool) -> list[tuple[str, str,
 def test_english_names_pair_by_kickoff_and_name() -> None:
     """ESPN's national team names pair in stage 1 with the "en" normalizer.
 
-    Both 18:45 games share a time slot, so the slot fallback (stage 3) could not
+    Both 18:45 games share a time slot, so the slot fallback (stage 4) could not
     tell them apart: the pairing below is by name. The "de" normalizer gives the
-    same result for these English names, but German OpenLigaDB names
-    ("Tschechien") would leave both evening games unpaired.
+    same result for these English names. German OpenLigaDB names ("Tschechien")
+    pair only because "England" is spelled alike: stage 3 takes England - Spain
+    by one name, then Czechia - Croatia is alone in the slot for stage 4.
     """
     snapshot = RECORDING.at(utc(20, 0))
     oldb = [
@@ -167,8 +168,12 @@ def test_english_names_pair_by_kickoff_and_name() -> None:
         oldb_match(3002, "2026-09-26T18:45:00Z", "Tschechien", "Kroatien"),
         oldb_match(3003, "2026-09-26T18:45:00Z", "England", "Spanien"),
     ]
-    only_slot_fallback = pair_matches(german, events, norm_de)
-    assert {german[i]["matchID"] for i in only_slot_fallback} == {3001}
+    by_one_name = pair_matches(german, events, norm_de)
+    assert {german[i]["matchID"]: e.id for i, e in by_one_name.items()} == {
+        3001: "401861057",
+        3002: "401861063",
+        3003: "401861066",
+    }
 
 
 # --- the evening ----------------------------------------------------------------

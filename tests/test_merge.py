@@ -154,8 +154,30 @@ def test_stage_two_tolerance_is_four_days() -> None:
     assert pair_matches(oldb, beyond, norm_de) == {}
 
 
-def test_stage_three_unique_slot_fallback() -> None:
-    """Stage 3: names too different, but the slot holds one match on each side."""
+def test_stage_three_one_name_in_shared_slot() -> None:
+    """Stage 3: two half-matching pairings in one slot (BL2, 11.10.2026).
+
+    "Hertha BSC" and "DSC Arminia Bielefeld" never equal ESPN's spelling; with
+    both in the same slot, the unique-slot fallback cannot help either.
+    """
+    oldb = [
+        oldb_match(1, "2026-10-11T11:30:00Z", "Hertha BSC", "SpVgg Greuther Fürth"),
+        oldb_match(2, "2026-10-11T11:30:00Z", "VfL Bochum", "DSC Arminia Bielefeld"),
+        oldb_match(3, "2026-10-11T11:30:00Z", "FC St. Pauli", "Karlsruher SC"),
+    ]
+    events = [
+        espn_event("boc", "2026-10-11T11:30Z", "VfL Bochum", "Arminia Bielefeld"),
+        espn_event("stp", "2026-10-11T11:30Z", "St. Pauli", "Karlsruher SC"),
+        espn_event("her", "2026-10-11T11:30Z", "Hertha Berlin", "Greuther Furth SpVgg"),
+        # Same teams a week later: one name equal is not enough without the slot.
+        espn_event("later", "2026-10-18T11:30Z", "Hertha Berlin", "Hamburger SV"),
+    ]
+    pairs = pair_matches(oldb, events, norm_de)
+    assert {i: e.id for i, e in pairs.items()} == {0: "her", 1: "boc", 2: "stp"}
+
+
+def test_stage_four_unique_slot_fallback() -> None:
+    """Stage 4: names too different, but the slot holds one match on each side."""
     oldb = [
         oldb_match(1, "2026-09-19T13:30:00Z", "Hamburger SV", "1. FC Köln"),
         oldb_match(
@@ -171,7 +193,7 @@ def test_stage_three_unique_slot_fallback() -> None:
     assert {i: e.id for i, e in pairs.items()} == {0: "hsv", 1: "bmg"}
 
 
-def test_stage_three_skips_ambiguous_slots() -> None:
+def test_stage_four_skips_ambiguous_slots() -> None:
     """Two open matches in the same slot: no guessing."""
     oldb = [
         oldb_match(1, "2026-09-19T13:30:00Z", "Alpha", "Beta"),
