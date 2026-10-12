@@ -48,6 +48,7 @@ from custom_components.matchday.logic.matchday import (
 from custom_components.matchday.logic.merge import norm_de, norm_en, pair_matches
 from custom_components.matchday.logic.summary import (
     MAX_POST_FAILURES,
+    POST_REFRESH,
     SUMMARY_REFRESH,
     SUMMARY_SETTLE,
 )
@@ -482,7 +483,9 @@ async def test_summaries_only_for_running_and_just_finished_games(
             if observation.summary_requests.get(EVENT_IDS[name]):
                 assert observation.matches[name].status != "pre"
     last_fetch = max(o.time for o in timeline if o.summary_requests)
-    assert last_fetch < RECORDING.final_whistle(LEAD_CHANGES) + timedelta(minutes=15)
+    assert last_fetch < (
+        RECORDING.final_whistle(LEAD_CHANGES) + SUMMARY_SETTLE + POST_REFRESH * 2
+    )
 
 
 async def test_summary_every_three_minutes_or_on_status_change(
@@ -524,14 +527,17 @@ async def test_summary_details_grow_during_the_game(
     }
 
 
-async def test_finished_game_fetched_twice_then_kept(
+async def test_finished_game_refetched_until_settled_then_kept(
     timeline: list[Observation],
 ) -> None:
-    """Final whistle and once more after settling; the details stay until Monday."""
+    """Every POST_REFRESH until settled after the whistle; the details stay until Monday."""
     whistle = RECORDING.final_whistle(LEAD_CHANGES)
     after = [o for o in summary_fetches(timeline, LEAD_CHANGES) if o.time >= whistle]
-    assert len(after) == 2
-    assert after[1].time - after[0].time >= SUMMARY_SETTLE
+    assert len(after) > 2
+    for previous, current in pairwise(after[1:]):
+        assert current.time - previous.time >= POST_REFRESH - timedelta(seconds=15)
+    assert whistle + SUMMARY_SETTLE <= after[-1].time
+    assert after[-1].time < whistle + SUMMARY_SETTLE + POST_REFRESH * 2
     final = timeline[-1].matches[LEAD_CHANGES]
     assert final.substitutions == 9
     assert final.lineups

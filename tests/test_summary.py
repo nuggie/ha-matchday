@@ -15,6 +15,7 @@ from .common import home_team_id, load_json, oldb_match
 from .replay import Recording
 from custom_components.matchday.logic.summary import (
     MAX_POST_FAILURES,
+    POST_REFRESH,
     SETTLED_AFTER_KICKOFF,
     SUMMARY_REFRESH,
     SUMMARY_SETTLE,
@@ -254,23 +255,30 @@ def test_live_match_every_three_minutes_and_on_status_change() -> None:
     assert tracker.due([match("live")], now)
 
 
-def test_finished_match_is_fetched_twice_then_never() -> None:
-    """Final whistle, once more after the settle time, then final."""
+def test_finished_match_is_refetched_until_settled_then_never() -> None:
+    """Final whistle, every POST_REFRESH until the settle time, then final."""
     tracker = SummaryTracker()
     now = KICKOFF + minutes(100)
     assert tracker.due([match("live")], now)
     tracker.store(match("live"), summary("1:0", 3), now)
 
     now += minutes(1)  # final whistle seen
-    assert tracker.due([match("post")], now)
-    tracker.store(match("post"), summary("1:0", 5), now)
-    assert not tracker.entry(1).final
-
-    now += SUMMARY_REFRESH
-    assert tracker.due([match("post")], now)
-    tracker.store(match("post"), summary("1:0", 6), now)
+    whistle = now
+    fetched = []
+    # Window refreshes every five minutes; ESPN corrects the summary 40' later.
+    while now - whistle <= SUMMARY_SETTLE + POST_REFRESH:
+        if tracker.due([match("post")], now):
+            subs = 5 if now - whistle < minutes(40) else 6
+            tracker.store(match("post"), summary("1:0", subs), now)
+            fetched.append(now - whistle)
+        now += minutes(5)
+    assert fetched == [
+        POST_REFRESH * i for i in range(SUMMARY_SETTLE // POST_REFRESH + 1)
+    ]
     assert tracker.entry(1).final
-    assert now - tracker.entry(1).post_since >= SUMMARY_SETTLE
+    current = [match("post")]
+    tracker.apply(current)
+    assert len(current[0]["substitutions"]) == 6
 
     for _ in range(10):
         now += minutes(30)

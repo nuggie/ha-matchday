@@ -35,12 +35,16 @@ SUMMARY_STATUSES = frozenset({"live", "ht", "post"})
 # from sliding to four.
 SUMMARY_REFRESH = timedelta(minutes=3)
 _REFRESH_SLACK = timedelta(seconds=15)
-# A finished match is fetched once more after this time, so late corrections of
-# the final statistics are picked up; after that it is never fetched again.
-SUMMARY_SETTLE = timedelta(minutes=2)
-# First seen finished this long after kickoff (restart, late setup): ESPN has
-# long settled, one fetch is final.
-SETTLED_AFTER_KICKOFF = timedelta(hours=3)
+# A finished match is fetched every ``POST_REFRESH`` for ``SUMMARY_SETTLE`` after
+# the final whistle, so late corrections of the final statistics are picked up;
+# after that it is never fetched again. ESPN corrects statistics well after the
+# whistle: the shadow run 09.-12.10.2026 saw stats frozen two minutes after the
+# whistle differ from Jinja's (refetching every five minutes) for a whole day.
+POST_REFRESH = timedelta(minutes=10)
+SUMMARY_SETTLE = timedelta(hours=3)
+# First seen finished this long after kickoff (restart, late setup): about two
+# hours of match plus ``SUMMARY_SETTLE``, ESPN has settled, one fetch is final.
+SETTLED_AFTER_KICKOFF = timedelta(hours=5)
 # A finished match whose summary keeps failing is given up after this many
 # attempts (three minutes apart at least) instead of being asked forever.
 MAX_POST_FAILURES = 3
@@ -242,15 +246,23 @@ class SummaryEntry:
     failures: int = 0
 
 
+def _refresh_interval(status: Any, entry: SummaryEntry) -> timedelta:
+    """Finished matches every ``POST_REFRESH``, failing and running ones faster."""
+    if status == "post" and not entry.failures:
+        return POST_REFRESH
+    return SUMMARY_REFRESH
+
+
 class SummaryTracker:
     """Remember match details per OpenLigaDB match and decide what to fetch.
 
     - Only matches with an ESPN id that are live, at half time or finished.
     - Running matches: on every status change and every three minutes.
-    - Finished matches: on the final whistle, once more after ``SUMMARY_SETTLE``,
-      then never again (``final``). A match first seen finished long after its
-      kickoff (restart) is fetched exactly once. Failing fetches are retried
-      every three minutes, for finished matches ``MAX_POST_FAILURES`` times.
+    - Finished matches: on the final whistle, then every ``POST_REFRESH`` until
+      ``SUMMARY_SETTLE`` has passed, then never again (``final``). A match first
+      seen finished long after its kickoff (restart) is fetched exactly once.
+      Failing fetches are retried every three minutes, for finished matches
+      ``MAX_POST_FAILURES`` times.
     - Matches that are not fetched keep their last details (Jinja's ``prev``
       fallback), also after the matchday window closed.
     """
@@ -298,7 +310,8 @@ class SummaryTracker:
                 not entry.final
                 and (
                     entry.fetched_at is None
-                    or now - entry.fetched_at >= SUMMARY_REFRESH - _REFRESH_SLACK
+                    or now - entry.fetched_at
+                    >= _refresh_interval(status, entry) - _REFRESH_SLACK
                 )
             ):
                 due.append(match)
