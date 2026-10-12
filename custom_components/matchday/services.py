@@ -25,7 +25,12 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv, entity_registry as er
 
 from .api import MatchdayApiError
-from .archive import UnknownMatchdayError, UnknownMatchError, details_of
+from .archive import (
+    MatchdayArchive,
+    UnknownMatchdayError,
+    UnknownMatchError,
+    details_of,
+)
 from .const import CONF_COMPETITION, DOMAIN
 from .coordinator import MatchdayConfigEntry, MatchdayCoordinator
 
@@ -106,6 +111,21 @@ def _coordinator(hass: HomeAssistant, entity_id: str) -> MatchdayCoordinator:
     return entry.runtime_data
 
 
+def _archive(coordinator: MatchdayCoordinator) -> MatchdayArchive:
+    """Return the archive behind browsing; ESPN-only competitions have none yet.
+
+    Raises:
+        ServiceValidationError: for a competition without OpenLigaDB (UEFA).
+    """
+    if coordinator.archive is None:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="browsing_not_supported",
+            translation_placeholders={"competition": coordinator.competition.name},
+        )
+    return coordinator.archive
+
+
 def _api_error(err: MatchdayApiError) -> HomeAssistantError:
     return HomeAssistantError(
         translation_domain=DOMAIN,
@@ -135,7 +155,7 @@ async def _async_get_matchday(call: ServiceCall) -> ServiceResponse:
         name, matches, is_current = data.name, copy.deepcopy(data.matches), True
     else:
         try:
-            browsed = await coordinator.archive.async_get_matchday(season, matchday)
+            browsed = await _archive(coordinator).async_get_matchday(season, matchday)
         except UnknownMatchdayError as err:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
@@ -172,7 +192,7 @@ async def _async_get_match_details(call: ServiceCall) -> ServiceResponse:
         details = details_of(current)
     else:
         try:
-            details = await coordinator.archive.async_get_match_details(match_id)
+            details = await _archive(coordinator).async_get_match_details(match_id)
         except UnknownMatchError as err:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,

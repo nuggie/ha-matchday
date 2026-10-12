@@ -26,6 +26,9 @@ class Competition:
 
     ``has_table`` is False for cups: no table sensor, no standings requests.
 
+    ``espn_qual_slug`` is the ESPN slug of the qualifying rounds of an ESPN-only
+    competition; its events are part of the season next to those of ``espn_slug``.
+
     ``oldb_results`` is False where OpenLigaDB results are not maintained and must
     not be passed on: the private Premier League carries automatic 0:0
     placeholders once a match kicked off, so ``matchResults`` is emptied (as the
@@ -39,6 +42,7 @@ class Competition:
     team_names: Literal["de", "en"] = "de"
     has_table: bool = True
     oldb_results: bool = True
+    espn_qual_slug: str | None = None
 
 
 COMPETITIONS: dict[str, Competition] = {
@@ -58,8 +62,23 @@ COMPETITIONS: dict[str, Competition] = {
             team_names="en",
             oldb_results=False,
         ),
-        Competition("ucl", "UEFA Champions League", "uefa.champions"),
-        Competition("uel", "UEFA Europa League", "uefa.europa"),
-        Competition("uecl", "UEFA Conference League", "uefa.europa.conf"),
+        Competition(
+            "ucl",
+            "UEFA Champions League",
+            "uefa.champions",
+            espn_qual_slug="uefa.champions_qual",
+        ),
+        Competition(
+            "uel",
+            "UEFA Europa League",
+            "uefa.europa",
+            espn_qual_slug="uefa.europa_qual",
+        ),
+        Competition(
+            "uecl",
+            "UEFA Conference League",
+            "uefa.europa.conf",
+            espn_qual_slug="uefa.europa.conf_qual",
+        ),
     )
 }

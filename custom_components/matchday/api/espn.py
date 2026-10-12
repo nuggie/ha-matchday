@@ -21,12 +21,14 @@ def scoreboard_months(first: date, last: date) -> list[str]:
     """Return the ``YYYYMM`` values needed to cover ``first`` .. ``last``.
 
     ESPN dropped the range syntax ``?dates=YYYYMMDD-YYYYMMDD`` in September 2026
-    (HTTP 400); only whole months work. A matchday spans a few days, so this is
-    the month of the first date plus, across a month boundary, that of the last.
+    (HTTP 400); only whole months work. Every month from the first to the last
+    date is listed: a matchday spans one or two, a season or a cup stage more.
     """
-    months = [first.strftime("%Y%m")]
-    if (last_month := last.strftime("%Y%m")) != months[0]:
-        months.append(last_month)
+    months: list[str] = []
+    year, month = first.year, first.month
+    while (year, month) <= (last.year, last.month):
+        months.append(f"{year}{month:02d}")
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
     return months
 
 

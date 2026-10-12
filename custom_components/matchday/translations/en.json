@@ -42,6 +42,9 @@
     },
     "api_error": {
       "message": "Fetching the matchday failed: {error}"
+    },
+    "browsing_not_supported": {
+      "message": "Browsing other matchdays of {competition} is not supported yet."
     }
   },
   "services": {

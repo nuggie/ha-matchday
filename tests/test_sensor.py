@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from freezegun.api import FrozenDateTimeFactory
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from homeassistant.config_entries import ConfigEntryState
@@ -12,7 +11,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .test_coordinator import mock_sources, setup_bl1
-from custom_components.matchday.const import CONF_COMPETITION, DOMAIN
 from custom_components.matchday.sensor import MatchdaySensor, MatchdayTableSensor
 
 ENTITY_ID = "sensor.matchday_bundesliga_matchday"
@@ -161,17 +159,3 @@ async def test_unload(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.NOT_LOADED
-
-
-async def test_espn_only_competition_is_not_supported_yet(hass: HomeAssistant) -> None:
-    """UEFA competitions fail setup with a clear error until phase 3."""
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="UEFA Champions League",
-        unique_id="ucl",
-        data={CONF_COMPETITION: "ucl"},
-    )
-    entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
-    assert entry.state is ConfigEntryState.SETUP_ERROR

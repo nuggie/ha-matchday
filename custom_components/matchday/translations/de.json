@@ -42,6 +42,9 @@
     },
     "api_error": {
       "message": "Abruf des Spieltags fehlgeschlagen: {error}"
+    },
+    "browsing_not_supported": {
+      "message": "Andere Spieltage von {competition} lassen sich noch nicht abrufen."
     }
   },
   "services": {

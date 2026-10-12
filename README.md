@@ -123,10 +123,16 @@ costs nothing. Concurrent requests for the same matchday or match share one fetc
 entities, matchdays or matches raise a validation error; a failing source raises an error for
 the action only — the sensors are not affected.
 
-**Not yet:** goal/kick-off events; UEFA competitions (setting one up fails with a clear error
-until phase 3); an ESPN-only Premier League mode.
+**UEFA competitions** (Champions, Europa, Conference League) run on ESPN alone: the rounds of a
+season (qualifying legs, league phase matchdays) are cut from the kickoffs of all its scoreboard
+months, refreshed every six hours; the shown round is picked like an OpenLigaDB matchday. Their
+table comes from ESPN's league phase standings. Browsing other rounds is not supported for them
+yet.
 
-`scripts/compare_shadow.py --competition bl1|bl2|dfb|pl` compares both sensors with the template
+**Not yet:** goal/kick-off events; the UEFA knockout view (two legs, aggregate); an ESPN-only
+Premier League mode.
+
+`scripts/compare_shadow.py --competition bl1|bl2|dfb|pl|ucl|uel|uecl` compares both sensors with the template
 sensors they replace (`HA_TOKEN`, optional `HA_URL`; `--only matchday|table`).
 
 ## Development

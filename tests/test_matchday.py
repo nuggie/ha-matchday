@@ -179,8 +179,9 @@ def test_update_interval(
         (date(2026, 9, 18), date(2026, 9, 20), ["202609"]),
         (date(2026, 9, 30), date(2026, 10, 2), ["202609", "202610"]),
         (date(2026, 12, 30), date(2027, 1, 2), ["202612", "202701"]),
+        (date(2026, 11, 3), date(2027, 1, 27), ["202611", "202612", "202701"]),
     ],
 )
 def test_scoreboard_months(first: date, last: date, months: list[str]) -> None:
-    """Month syntax: first month, plus the last one across a month boundary."""
+    """Month syntax: every month from the first to the last date."""
     assert scoreboard_months(first, last) == months
