@@ -42,6 +42,11 @@ _REFRESH_SLACK = timedelta(seconds=15)
 # whistle differ from Jinja's (refetching every five minutes) for a whole day.
 POST_REFRESH = timedelta(minutes=10)
 SUMMARY_SETTLE = timedelta(hours=3)
+# Right after the whistle ESPN is still filling in the final statistics; the
+# fetch on the whistle often comes too early (UCL 13.10.2026: two of nine
+# matches showed the final values only with the next fetch, 11-12 minutes
+# later). For ``POST_EARLY`` after the whistle, fetch as often as live.
+POST_EARLY = timedelta(minutes=10)
 # First seen finished this long after kickoff (restart, late setup): about two
 # hours of match plus ``SUMMARY_SETTLE``, ESPN has settled, one fetch is final.
 SETTLED_AFTER_KICKOFF = timedelta(hours=5)
@@ -242,13 +247,23 @@ class SummaryEntry:
     fetched_at: datetime | None = None
     fetched_status: str | None = None
     post_since: datetime | None = None
+    # The match was seen running before ``post_since``: the whistle was now,
+    # not some time before a restart.
+    whistle_seen: bool = False
     final: bool = False
     failures: int = 0
 
 
-def _refresh_interval(status: Any, entry: SummaryEntry) -> timedelta:
-    """Finished matches every ``POST_REFRESH``, failing and running ones faster."""
+def _refresh_interval(status: Any, entry: SummaryEntry, now: datetime) -> timedelta:
+    """Finished matches every ``POST_REFRESH``, failing, running and just
+    finished ones (``POST_EARLY``) every ``SUMMARY_REFRESH``."""
     if status == "post" and not entry.failures:
+        if (
+            entry.whistle_seen
+            and entry.post_since is not None
+            and now - entry.post_since < POST_EARLY
+        ):
+            return SUMMARY_REFRESH
         return POST_REFRESH
     return SUMMARY_REFRESH
 
@@ -258,8 +273,9 @@ class SummaryTracker:
 
     - Only matches with an ESPN id that are live, at half time or finished.
     - Running matches: on every status change and every three minutes.
-    - Finished matches: on the final whistle, then every ``POST_REFRESH`` until
-      ``SUMMARY_SETTLE`` has passed, then never again (``final``). A match first
+    - Finished matches: on the final whistle, every three minutes during
+      ``POST_EARLY``, then every ``POST_REFRESH`` until ``SUMMARY_SETTLE`` has
+      passed, then never again (``final``). A match first
       seen finished long after its kickoff (restart) is fetched exactly once.
       Failing fetches are retried every three minutes, for finished matches
       ``MAX_POST_FAILURES`` times.
@@ -299,6 +315,7 @@ class SummaryTracker:
                 del self._entries[match.get("matchID")]
             if status == "post" and entry is not None and entry.post_since is None:
                 entry.post_since = now
+                entry.whistle_seen = True
             if status not in SUMMARY_STATUSES:
                 continue
             if entry is None:
@@ -311,7 +328,7 @@ class SummaryTracker:
                 and (
                     entry.fetched_at is None
                     or now - entry.fetched_at
-                    >= _refresh_interval(status, entry) - _REFRESH_SLACK
+                    >= _refresh_interval(status, entry, now) - _REFRESH_SLACK
                 )
             ):
                 due.append(match)

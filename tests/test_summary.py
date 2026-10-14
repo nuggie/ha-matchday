@@ -15,6 +15,7 @@ from .common import home_team_id, load_json, oldb_match
 from .replay import Recording
 from custom_components.matchday.logic.summary import (
     MAX_POST_FAILURES,
+    POST_EARLY,
     POST_REFRESH,
     SETTLED_AFTER_KICKOFF,
     SUMMARY_REFRESH,
@@ -256,7 +257,8 @@ def test_live_match_every_three_minutes_and_on_status_change() -> None:
 
 
 def test_finished_match_is_refetched_until_settled_then_never() -> None:
-    """Final whistle, every POST_REFRESH until the settle time, then final."""
+    """Final whistle, every three minutes during POST_EARLY, then every
+    POST_REFRESH until the settle time, then final."""
     tracker = SummaryTracker()
     now = KICKOFF + minutes(100)
     assert tracker.due([match("live")], now)
@@ -265,16 +267,18 @@ def test_finished_match_is_refetched_until_settled_then_never() -> None:
     now += minutes(1)  # final whistle seen
     whistle = now
     fetched = []
-    # Window refreshes every five minutes; ESPN corrects the summary 40' later.
+    # Refreshes every minute; ESPN corrects the summary 40' later.
     while now - whistle <= SUMMARY_SETTLE + POST_REFRESH:
         if tracker.due([match("post")], now):
             subs = 5 if now - whistle < minutes(40) else 6
             tracker.store(match("post"), summary("1:0", subs), now)
             fetched.append(now - whistle)
-        now += minutes(5)
-    assert fetched == [
-        POST_REFRESH * i for i in range(SUMMARY_SETTLE // POST_REFRESH + 1)
-    ]
+        now += minutes(1)
+    early = [SUMMARY_REFRESH * i for i in range(4)]  # 0, 3, 6, 9 (< POST_EARLY)
+    assert early[-1] < POST_EARLY <= early[-1] + SUMMARY_REFRESH
+    later = [early[-1] + POST_REFRESH * i for i in range(1, 19)]  # 19 ... 189
+    assert later[-2] < SUMMARY_SETTLE <= later[-1]
+    assert fetched == early + later
     assert tracker.entry(1).final
     current = [match("post")]
     tracker.apply(current)
@@ -293,6 +297,19 @@ def test_finished_long_ago_is_fetched_once() -> None:
     tracker.store(match("post"), summary("2:1", 9), now)
     assert tracker.entry(1).final
     assert tracker.due([match("post")], now + minutes(5)) == []
+
+
+def test_finished_before_a_restart_skips_the_early_refreshes() -> None:
+    """POST_EARLY needs the whistle itself; after a restart it was long ago."""
+    tracker = SummaryTracker()
+    now = KICKOFF + minutes(150)
+    fetched = []
+    for step in range(POST_REFRESH // minutes(1) + 1):
+        if tracker.due([match("post")], now):
+            tracker.store(match("post"), summary("2:1", 9), now)
+            fetched.append(step)
+        now += minutes(1)
+    assert fetched == [0, POST_REFRESH // minutes(1)]
 
 
 def test_details_stay_when_not_fetched() -> None:
