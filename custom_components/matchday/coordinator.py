@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -20,6 +20,7 @@ from .archive import MatchdayArchive
 from .const import DOMAIN, LOGGER, Competition
 from .espn_archive import EspnArchive
 from .logic.espn_only import Round, annotate_ties, pick_round, round_matches
+from .logic.events import EventTracker, MatchEvent
 from .logic.matchday import (
     INTERVAL_IDLE,
     MatchdayPick,
@@ -93,6 +94,10 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
     (``MatchdayArchive`` / ``EspnArchive``). Their failures never fail the update
     (the ESPN-only season only until it is known); the last known
     details, table and matchday list stay.
+
+    Each successful update yields the match events ``matchday_kickoff``,
+    ``matchday_goal``, ``matchday_goal_disallowed`` and ``matchday_final_whistle``
+    (``EventTracker``); they are fired after the sensors show the update.
     """
 
     config_entry: MatchdayConfigEntry
@@ -127,6 +132,8 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
         self._names: list[dict[str, Any]] = []
         self._names_at: datetime | None = None
         self._base_table: list[dict[str, Any]] | None = None
+        self._events = EventTracker()
+        self._pending_events: list[MatchEvent] = []
         # Other matchdays on request, and the season's matchday list.
         self.archive: MatchdayArchive | EspnArchive = (
             MatchdayArchive(hass, entry, competition, self._oldb, self._espn)
@@ -206,6 +213,7 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
         await self.archive.async_refresh_schedule(pick.season, dt_util.utcnow())
         data.matchdays = self.archive.matchdays(pick.season)
         self.update_interval = update_interval(matches, window, today, dt_util.utcnow())
+        self._track_events(data)
         return data
 
     async def _async_update_espn_only(self) -> MatchdayData:
@@ -266,7 +274,29 @@ class MatchdayCoordinator(DataUpdateCoordinator[MatchdayData]):
         self.update_interval = update_interval(
             matches, window, dt_util.now().date(), dt_util.utcnow()
         )
+        self._track_events(data)
         return data
+
+    def _track_events(self, data: MatchdayData) -> None:
+        """Queue the match events of this update (the last step of a good update)."""
+        self._pending_events = self._events.update(
+            data.matches,
+            dt_util.utcnow(),
+            {
+                "competition": self.competition.key,
+                "competition_name": self.competition.name,
+                "matchday": data.matchday,
+                "matchday_name": data.name,
+            },
+        )
+
+    @callback
+    def async_update_listeners(self) -> None:
+        """Update the sensors, then fire the queued match events."""
+        super().async_update_listeners()
+        events, self._pending_events = self._pending_events, []
+        for event in events:
+            self.hass.bus.async_fire(f"{DOMAIN}_{event.kind}", event.data)
 
     async def _async_update_summaries(self, matches: list[dict[str, Any]]) -> None:
         """Fetch the summaries that are due and write all known details."""

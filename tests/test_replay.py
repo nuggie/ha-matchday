@@ -29,6 +29,7 @@ from .replay import (
     OLDB_RESULT_DELAY,
     REPLAY_COMPETITION,
     REPLAY_MATCHES,
+    FiredEvent,
     Observation,
     Recording,
     Replay,
@@ -567,3 +568,88 @@ async def test_missing_summaries_are_throttled(timeline: list[Observation]) -> N
         whistle = RECORDING.final_whistle(name)
         after = [o for o in summary_fetches(timeline, name) if o.time >= whistle]
         assert len(after) == MAX_POST_FAILURES, name
+
+
+# --- match events ---------------------------------------------------------------
+
+
+def fired(timeline: list[Observation], game: str) -> list[FiredEvent]:
+    """Return the match events of ``game`` over the whole replay."""
+    return [event for o in timeline for event in o.events if event.game == game]
+
+
+async def test_match_events_follow_the_score(timeline: list[Observation]) -> None:
+    """Every goal once, in order, with its scorer; the VAR goal taken back."""
+
+    def summary(game: str) -> list[tuple[str, str, str | None, str | None]]:
+        return [
+            (
+                event.event_type.removeprefix("matchday_"),
+                event.data["score"],
+                event.data.get("scorer"),
+                event.data.get("minute") if "scorer" in event.data else None,
+            )
+            for event in fired(timeline, game)
+        ]
+
+    assert summary(EARLY) == [
+        ("kickoff", "0:0", None, None),
+        ("final_whistle", "0:0", None, None),
+    ]
+    assert summary(VAR) == [
+        ("kickoff", "0:0", None, None),
+        ("goal", "0:1", "Luka Modric", "47'"),
+        ("goal", "1:1", "Adam Karabec", "54'"),
+        ("goal", "1:2", "Marco Pasalic", "77'"),
+        ("goal", "2:2", "Matěj Radosta", "79'"),
+        ("goal_disallowed", "1:2", "Matěj Radosta", "79'"),
+        ("final_whistle", "1:2", None, None),
+    ]
+    assert summary(LEAD_CHANGES) == [
+        ("kickoff", "0:0", None, None),
+        ("goal", "0:1", "Lamine Yamal", "2'"),
+        ("goal", "1:1", "Anthony Gordon", "36'"),
+        ("goal", "2:1", "Harry Kane", "40'"),
+        ("goal", "2:2", "Álex Baena", "60'"),
+        ("goal", "2:3", "Mikel Oyarzabal", "74'"),
+        ("final_whistle", "2:3", None, None),
+    ]
+
+
+async def test_match_events_fire_after_the_sensor_update(
+    timeline: list[Observation],
+) -> None:
+    """When an event fires, the sensor already shows its score and status."""
+    events = [event for o in timeline for event in o.events]
+    assert len(events) == 2 + 7 + 7
+    for event in events:
+        assert event.sensor_score == event.data["score"], event
+
+
+async def test_match_events_carry_teams_and_context(
+    timeline: list[Observation],
+) -> None:
+    kickoff, first_goal, *_rest, final = fired(timeline, LEAD_CHANGES)
+    assert kickoff.data["status"] == "live"
+    assert kickoff.data["kickoff"] == "2026-09-26T18:45:00Z"
+    assert first_goal.data["team1"] == "England"
+    assert first_goal.data["team2"] == "Spain"
+    assert first_goal.data["team"] == "team2"
+    assert first_goal.data["team_name"] == "Spain"
+    assert first_goal.data["goal_type"] == "regular"
+    assert first_goal.data["competition"] == REPLAY_COMPETITION.key
+    assert first_goal.data["matchday"] == MATCHDAY
+    assert final.data["status"] == "post"
+    assert final.data["ht_score"] == "2:1"
+    # Kickoff within one live refresh of the recorded start, final whistle
+    # in the refresh that first shows the game finished.
+    observation_of = {id(event): o.time for o in timeline for event in o.events}
+    started = next(
+        snap.ts
+        for snap in RECORDING.snapshots
+        if espn_status(snap.event(LEAD_CHANGES))[0] == "in"
+    )
+    assert observation_of[id(kickoff)] - started <= INTERVAL_LIVE
+    assert observation_of[id(final)] == next(
+        o.time for o in timeline if o.matches[LEAD_CHANGES].status == "post"
+    )

@@ -134,7 +134,52 @@ from the scoreboard. The matchday sensor's `phase` attribute names the stage of 
 The table comes from ESPN's league phase standings. `matchday.get_matchday` browses the rounds of
 the current and earlier seasons, `matchday.get_match_details` fetches a match's summary.
 
-**Not yet:** goal/kick-off events; an ESPN-only Premier League mode.
+### Match events
+
+Every competition fires `matchday_kickoff`, `matchday_goal`, `matchday_goal_disallowed` and
+`matchday_final_whistle`, right after its matchday sensor shows the change (so a triggered
+automation reading the sensor sees the new state).
+
+| Field | |
+|---|---|
+| `competition`, `competition_name`, `matchday`, `matchday_name` | e.g. `bl1`, `Bundesliga`, `7`, `7. Spieltag` |
+| `match_id`, `espn_id`, `kickoff` | `matchID` of the `matches` attribute, ESPN event id, kickoff (UTC) |
+| `team1`, `team2`, `team1_short`, `team2_short` | home and away team as the sensor names them |
+| `score`, `minute`, `status` | score after the event (`2:1`), match clock, `live`/`ht`/`post` |
+| `team`, `team_name`, `scorer`, `goal_type` | goals only: the side the goal counts for (`team1`/`team2`), scorer (`null` if ESPN has none yet), `regular`/`penalty`/`owngoal`; `minute` is the goal's minute |
+| `ht_score`, `pso`, `aggregate` | final whistle only: half-time score, penalty shootout, aggregate of a second leg (`null` if none) |
+
+Goals follow the **score**, not ESPN's `details`: those run up to 30 seconds ahead of the score
+for a new goal and up to 30 seconds behind it for a goal taken back. The n-th goal of a side gets
+the side's n-th scoring play as scorer (an own goal counts for the side it is credited to); if the
+play is not there yet, the goal waits one update for it. A lowered score fires
+`matchday_goal_disallowed` with the scorer the goal was announced with. Events need a match seen
+before: the first update after a restart or on a new matchday only records the state, and a match
+without ESPN data in an update keeps its last state. Goals are only announced while a match runs
+(and in the update of its final whistle); kickoff and final whistle once per match.
+
+### Blueprint: match push
+
+`blueprints/automation/matchday/match_push.yaml` turns the events into a message for chosen
+teams (or all matches): `⚽ TOR! 67' — SC Freiburg 2:1 FC Bayern München (Grifo)`,
+`❌ Tor zurückgenommen — …`, `▶️ Anpfiff — …`, `🏁 Endstand: … (HZ 1:0, i.E. 4:3)`, German or
+English. Inputs: `teams` (several spellings allowed, empty = all), `events` (default goal, goal
+disallowed, final whistle), `language`, and the `actions` to run with `{{ message }}`, `{{ event }}`
+and `{{ trigger.event.data }}`. Copy it to `config/blueprints/automation/matchday/` (the repository
+is private, so the import link does not work yet).
+
+```yaml
+use_blueprint:
+  path: matchday/match_push.yaml
+  input:
+    teams: [SC Freiburg]
+    actions:
+      - action: notify.mobile_app_phone
+        data:
+          message: "{{ message }}"
+```
+
+**Not yet:** an ESPN-only Premier League mode.
 
 `scripts/compare_shadow.py --competition bl1|bl2|dfb|pl|ucl|uel|uecl` compares both sensors with the template
 sensors they replace (`HA_TOKEN`, optional `HA_URL`; `--only matchday|table`).

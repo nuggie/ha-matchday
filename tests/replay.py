@@ -39,13 +39,14 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 )
 from yarl import URL
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .common import ESPN, FIXTURES, OLDB, oldb_match, schedule_answers
 from custom_components.matchday.const import CONF_COMPETITION, DOMAIN, Competition
 from custom_components.matchday.coordinator import MatchdayCoordinator
+from custom_components.matchday.logic.events import EVENT_KINDS
 
 REPLAY_FIXTURE = FIXTURES / "replay" / "uefa.nations-20260926.json.gz"
 
@@ -208,6 +209,18 @@ class Observation:
     matches: dict[str, MatchView] = field(default_factory=dict)
     # live_score per match as the sensor entity shows it.
     sensor_scores: dict[str, str | None] = field(default_factory=dict)
+    # Match events fired by this refresh, in order.
+    events: list[FiredEvent] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class FiredEvent:
+    """A match event, with the score the sensor showed when it was fired."""
+
+    event_type: str
+    game: str
+    data: dict[str, Any]
+    sensor_score: str | None
 
 
 def _view(match: Mapping[str, Any]) -> MatchView:
@@ -249,6 +262,9 @@ class Replay:
         self.observations: list[Observation] = []
         self.entry: MockConfigEntry | None = None
         self._entity_id: str | None = None
+        self._fired: list[FiredEvent] = []
+        for kind in EVENT_KINDS:
+            hass.bus.async_listen(f"{DOMAIN}_{kind}", self._on_event)
         self._labels = {match_id: spec[0] for match_id, spec in REPLAY_MATCHES.items()}
         self._results_at = {
             match_id: recording.final_whistle(short_name) + OLDB_RESULT_DELAY
@@ -308,6 +324,26 @@ class Replay:
             return AiohttpClientMockResponse(method, url, json=summary)
 
         return respond
+
+    @callback
+    def _on_event(self, event: Event) -> None:
+        state = self.hass.states.get(self._entity_id) if self._entity_id else None
+        shown = next(
+            (
+                match["live_score"]
+                for match in (state.attributes["matches"] if state else [])
+                if match["matchID"] == event.data["match_id"]
+            ),
+            None,
+        )
+        self._fired.append(
+            FiredEvent(
+                event.event_type,
+                self._labels.get(event.data["match_id"], ""),
+                dict(event.data),
+                shown,
+            )
+        )
 
     # --- synthetic OpenLigaDB -------------------------------------------------
 
@@ -454,7 +490,9 @@ class Replay:
                 self._label(match): match["live_score"]
                 for match in (state.attributes["matches"] if state else [])
             },
+            events=self._fired,
         )
+        self._fired = []
         self.observations.append(observation)
         return observation
 

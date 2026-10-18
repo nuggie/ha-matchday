@@ -1,0 +1,122 @@
+blueprint:
+  name: Matchday – match push
+  description: >-
+    Reports kickoff, goals, disallowed goals and the final whistle of the Matchday
+    integration for the chosen teams (or all matches), e.g. as a notification.
+    The actions get the finished text in `message`
+    ("⚽ TOR! 67' — SC Freiburg 2:1 FC Bayern München (Grifo)"), the kind of event
+    in `event` (kickoff, goal, goal_disallowed, final_whistle) and all fields of the
+    event in `trigger.event.data`.
+  domain: automation
+  author: nuggie
+  homeassistant:
+    min_version: "2024.10.0"
+  source_url: https://github.com/nuggie/ha-matchday/blob/main/blueprints/automation/matchday/match_push.yaml
+  input:
+    teams:
+      name: Teams
+      description: >-
+        Team names as the Matchday sensors show them, e.g. "SC Freiburg" (the UEFA
+        competitions use ESPN's names). Several spellings of one team are fine.
+        Leave empty for all matches.
+      default: []
+      selector:
+        text:
+          multiple: true
+    events:
+      name: Events
+      default: [goal, goal_disallowed, final_whistle]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Kickoff
+              value: kickoff
+            - label: Goal
+              value: goal
+            - label: Goal disallowed (VAR)
+              value: goal_disallowed
+            - label: Final whistle
+              value: final_whistle
+    language:
+      name: Language of the message
+      default: de
+      selector:
+        select:
+          options:
+            - label: Deutsch
+              value: de
+            - label: English
+              value: en
+    actions:
+      name: Actions
+      description: >-
+        What to do, e.g. send a notification with `{{ message }}`.
+      selector:
+        action: {}
+
+mode: queued
+max: 10
+
+triggers:
+  - trigger: event
+    event_type: matchday_kickoff
+    id: kickoff
+  - trigger: event
+    event_type: matchday_goal
+    id: goal
+  - trigger: event
+    event_type: matchday_goal_disallowed
+    id: goal_disallowed
+  - trigger: event
+    event_type: matchday_final_whistle
+    id: final_whistle
+
+variables:
+  teams: !input teams
+  wanted: !input events
+  language: !input language
+  event: "{{ trigger.id }}"
+  message: |-
+    {%- set de = language == 'de' -%}
+    {%- set m = trigger.event.data -%}
+    {%- set pairing = m.team1 ~ ' ' ~ m.score ~ ' ' ~ m.team2 -%}
+    {%- if event == 'kickoff' -%}
+      ▶️ {{ 'Anpfiff' if de else 'Kick-off' }} — {{ m.team1 }} – {{ m.team2 }}
+    {%- elif event in ['goal', 'goal_disallowed'] -%}
+      {%- set kinds = {'penalty': 'Elfmeter' if de else 'penalty',
+                       'owngoal': 'Eigentor' if de else 'own goal'} -%}
+      {%- set who = [m.scorer, kinds.get(m.goal_type)] | select | join(', ') -%}
+      {%- set who = ' (' ~ who ~ ')' if who else '' -%}
+      {%- if event == 'goal' -%}
+        ⚽ {{ 'TOR!' if de else 'GOAL!' }} {{ m.minute ~ ' — ' if m.minute else '' }}{{ pairing }}{{ who }}
+      {%- else -%}
+        ❌ {{ 'Tor zurückgenommen' if de else 'Goal disallowed' }} — {{ pairing }}{{ who }}
+      {%- endif -%}
+    {%- else -%}
+      {%- set extra = [] -%}
+      {%- if m.ht_score -%}
+        {%- set extra = extra + [('HZ ' if de else 'HT ') ~ m.ht_score] -%}
+      {%- endif -%}
+      {%- if m.pso -%}
+        {%- set extra = extra + [('i.E. ' if de else 'pens ')
+                                 ~ (m.pso.team1 | int) ~ ':' ~ (m.pso.team2 | int)] -%}
+      {%- endif -%}
+      {%- if m.aggregate and m.aggregate.score -%}
+        {%- set extra = extra + [('Gesamt ' if de else 'agg. ') ~ m.aggregate.score] -%}
+      {%- endif -%}
+      🏁 {{ 'Endstand' if de else 'Full time' }}: {{ pairing }}{{ ' (' ~ extra | join(', ') ~ ')' if extra else '' }}
+    {%- endif -%}
+
+conditions:
+  - condition: template
+    value_template: >-
+      {%- set names = ([teams] if teams is string else teams)
+          | map('trim') | map('lower') | reject('eq', '') | list -%}
+      {%- set m = trigger.event.data -%}
+      {{ event in wanted
+         and (names | count == 0
+              or (m.team1 | lower) in names
+              or (m.team2 | lower) in names) }}
+
+actions: !input actions
