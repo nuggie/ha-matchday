@@ -53,6 +53,16 @@ SETTLED_AFTER_KICKOFF = timedelta(hours=5)
 # A finished match whose summary keeps failing is given up after this many
 # attempts (three minutes apart at least) instead of being asked forever.
 MAX_POST_FAILURES = 3
+# Line-ups before kickoff: team sheets are due 75 minutes before kickoff, ESPN
+# fills ``rosters`` about an hour before. From ``LINEUP_LEAD`` before kickoff a
+# match still "pre" is fetched every ``PRE_REFRESH`` until its line-ups are
+# known, then every ``PRE_KNOWN_REFRESH`` for late changes. A match that stays
+# "pre" past its kickoff (late status switch, delay) is asked for
+# ``LINEUP_GRACE`` more.
+LINEUP_LEAD = timedelta(minutes=75)
+LINEUP_GRACE = timedelta(minutes=30)
+PRE_REFRESH = timedelta(minutes=5)
+PRE_KNOWN_REFRESH = timedelta(minutes=15)
 
 
 def _by_side(items: Iterable[Any], side: str) -> Mapping[str, Any] | None:
@@ -254,9 +264,22 @@ class SummaryEntry:
     failures: int = 0
 
 
+def _in_lineup_window(match: Mapping[str, Any], now: datetime) -> bool:
+    """Return True for a "pre" match from ``LINEUP_LEAD`` before its kickoff."""
+    if match.get("status") != "pre":
+        return False
+    kickoff = parse_utc(match.get("matchDateTimeUTC"))
+    return kickoff is not None and (
+        kickoff - LINEUP_LEAD <= now < kickoff + LINEUP_GRACE
+    )
+
+
 def _refresh_interval(status: Any, entry: SummaryEntry, now: datetime) -> timedelta:
-    """Finished matches every ``POST_REFRESH``, failing, running and just
-    finished ones (``POST_EARLY``) every ``SUMMARY_REFRESH``."""
+    """Matches before kickoff every ``PRE_REFRESH`` (``PRE_KNOWN_REFRESH`` once
+    the line-ups are known), finished matches every ``POST_REFRESH``, failing,
+    running and just finished ones (``POST_EARLY``) every ``SUMMARY_REFRESH``."""
+    if status == "pre":
+        return PRE_KNOWN_REFRESH if entry.details.get("lineups") else PRE_REFRESH
     if status == "post" and not entry.failures:
         if (
             entry.whistle_seen
@@ -271,7 +294,10 @@ def _refresh_interval(status: Any, entry: SummaryEntry, now: datetime) -> timede
 class SummaryTracker:
     """Remember match details per OpenLigaDB match and decide what to fetch.
 
-    - Only matches with an ESPN id that are live, at half time or finished.
+    - Only matches with an ESPN id that are live, at half time or finished, or
+      about to start (``LINEUP_LEAD``, for the line-ups).
+    - Matches before kickoff: every five minutes until the line-ups are known,
+      then every 15 minutes.
     - Running matches: on every status change and every three minutes.
     - Finished matches: on the final whistle, every three minutes during
       ``POST_EARLY``, then every ``POST_REFRESH`` until ``SUMMARY_SETTLE`` has
@@ -316,7 +342,7 @@ class SummaryTracker:
             if status == "post" and entry is not None and entry.post_since is None:
                 entry.post_since = now
                 entry.whistle_seen = True
-            if status not in SUMMARY_STATUSES:
+            if status not in SUMMARY_STATUSES and not _in_lineup_window(match, now):
                 continue
             if entry is None:
                 self._entries[match.get("matchID")] = SummaryEntry(

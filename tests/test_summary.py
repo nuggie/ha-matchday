@@ -14,9 +14,13 @@ import pytest
 from .common import home_team_id, load_json, oldb_match
 from .replay import Recording
 from custom_components.matchday.logic.summary import (
+    LINEUP_GRACE,
+    LINEUP_LEAD,
     MAX_POST_FAILURES,
     POST_EARLY,
     POST_REFRESH,
+    PRE_KNOWN_REFRESH,
+    PRE_REFRESH,
     SETTLED_AFTER_KICKOFF,
     SUMMARY_REFRESH,
     SUMMARY_SETTLE,
@@ -221,7 +225,7 @@ def minutes(value: float) -> timedelta:
 
 
 def test_only_started_matches_with_espn_id_are_fetched() -> None:
-    """pre and unpaired matches are never fetched."""
+    """pre before the line-up window and unpaired matches are not fetched."""
     tracker = SummaryTracker()
     matches = [
         match("pre", match_id=1),
@@ -230,8 +234,97 @@ def test_only_started_matches_with_espn_id_are_fetched() -> None:
         match("ht", espn_id="e4", match_id=4),
         match("post", espn_id="e5", match_id=5),
     ]
-    due = tracker.due(matches, KICKOFF)
+    due = tracker.due(matches, KICKOFF - LINEUP_LEAD - minutes(1))
     assert [m["matchID"] for m in due] == [3, 4, 5]
+
+
+def pre_summary(*, lineups: bool) -> dict[str, Any]:
+    """Return a summary as ESPN sends it before kickoff (BL, 2026-10-26).
+
+    No line scores, season statistics instead of match statistics, and the
+    rosters empty until the team sheets are out.
+    """
+
+    def roster(side: str) -> dict[str, Any]:
+        players = [
+            {"starter": i < 11, "athlete": {"displayName": f"{side} {i + 1}"}}
+            for i in range(18)
+        ]
+        return {
+            "homeAway": side,
+            "formation": "4-2-3-1" if lineups else None,
+            "roster": players if lineups else [],
+        }
+
+    season = [
+        {"name": "goalDifference", "displayValue": "7"},
+        {"name": "totalGoals", "displayValue": "16"},
+    ]
+    return {
+        "header": {
+            "competitions": [
+                {"competitors": [{"homeAway": "home"}, {"homeAway": "away"}]}
+            ]
+        },
+        "boxscore": {
+            "teams": [
+                {"homeAway": "home", "statistics": season},
+                {"homeAway": "away", "statistics": season},
+            ]
+        },
+        "rosters": [roster("home"), roster("away")],
+    }
+
+
+def test_lineups_before_kickoff() -> None:
+    """From LINEUP_LEAD before kickoff every PRE_REFRESH until the line-ups
+    are there, then every PRE_KNOWN_REFRESH; kickoff is fetched at once."""
+    tracker = SummaryTracker()
+    now = KICKOFF - LINEUP_LEAD
+    assert tracker.due([match("pre")], now - minutes(1)) == []
+
+    assert tracker.due([match("pre")], now)
+    tracker.store(match("pre"), pre_summary(lineups=False), now)
+    current = [match("pre")]
+    tracker.apply(current)
+    assert current[0]["lineups"] is None
+    # Season statistics are not match statistics, no half time before kickoff.
+    assert current[0]["stats"] is None
+    assert current[0]["ht_score"] is None
+
+    assert tracker.due([match("pre")], now + minutes(4)) == []
+    now += PRE_REFRESH
+    assert tracker.due([match("pre")], now)
+    tracker.store(match("pre"), pre_summary(lineups=True), now)
+    current = [match("pre")]
+    tracker.apply(current)
+    assert current[0]["lineups"]["home"] == {
+        "formation": "4-2-3-1",
+        "players": [f"home {i}" for i in range(1, 12)],
+    }
+    assert len(current[0]["lineups"]["away"]["players"]) == 11
+
+    # Known line-ups: only every PRE_KNOWN_REFRESH, for late changes.
+    assert tracker.due([match("pre")], now + PRE_REFRESH) == []
+    assert tracker.due([match("pre")], now + PRE_KNOWN_REFRESH)
+
+    # Kickoff is a status change: fetched right away, the line-ups stay.
+    now = KICKOFF + minutes(1)
+    assert tracker.due([match("live")], now)
+    tracker.store(match("live"), summary("0:0"), now)
+    current = [match("live")]
+    tracker.apply(current)
+    assert current[0]["lineups"]["away"]["formation"] == "4-2-3-1"
+
+
+def test_pre_match_past_kickoff_is_given_up() -> None:
+    """A match still "pre" LINEUP_GRACE after kickoff is not asked any more."""
+    tracker = SummaryTracker()
+    now = KICKOFF + LINEUP_GRACE - minutes(1)
+    assert tracker.due([match("pre")], now)
+    tracker.store(match("pre"), None, now)
+    assert tracker.due([match("pre")], KICKOFF + LINEUP_GRACE) == []
+    assert tracker.due([match("pre", espn_id=None)], KICKOFF) == []
 
 
 def test_live_match_every_three_minutes_and_on_status_change() -> None:

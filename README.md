@@ -45,8 +45,9 @@ OpenLigaDB league `pl`) are supported; one config entry per competition. Each ge
   the display switches in the middle of a break. A running match blocks the switch.
 - **Polling:** 60 s while a match is live or starts within 10 minutes, 5 min around the
   matchday, 30 min otherwise. Errors keep the last good data.
-- **Match summaries** (one ESPN request per match) only for running matches (every 3 minutes
-  and on every status change) and finished ones (at the final whistle and once more two minutes
+- **Match summaries** (one ESPN request per match) only for matches about to start (from 75
+  minutes before kickoff every 5 minutes until the line-ups are there, then every 15 minutes),
+  running matches (every 3 minutes and on every status change) and finished ones (at the final whistle and once more two minutes
   later, then never again; after a restart one request per finished match). Matches that are
   not fetched keep their last details, also after the matchday window closed.
 

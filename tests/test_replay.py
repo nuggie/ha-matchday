@@ -48,8 +48,11 @@ from custom_components.matchday.logic.matchday import (
 )
 from custom_components.matchday.logic.merge import norm_de, norm_en, pair_matches
 from custom_components.matchday.logic.summary import (
+    LINEUP_GRACE,
+    LINEUP_LEAD,
     MAX_POST_FAILURES,
     POST_REFRESH,
+    PRE_REFRESH,
     SUMMARY_REFRESH,
     SUMMARY_SETTLE,
 )
@@ -479,15 +482,26 @@ def summary_fetches(timeline: list[Observation], name: str) -> list[Observation]
     return [o for o in timeline if o.summary_requests.get(EVENT_IDS[name])]
 
 
-async def test_summaries_only_for_running_and_just_finished_games(
+async def test_summaries_only_around_the_games(
     timeline: list[Observation],
 ) -> None:
-    """No summary before kickoff, one per refresh at most, none after the day."""
+    """Before kickoff only in the line-up window and every PRE_REFRESH, one per
+    refresh at most, none after the day."""
     for observation in timeline:
         assert all(count == 1 for count in observation.summary_requests.values())
-        for name in GAMES:
-            if observation.summary_requests.get(EVENT_IDS[name]):
-                assert observation.matches[name].status != "pre"
+    for name in GAMES:
+        before = [
+            o.time
+            for o in summary_fetches(timeline, name)
+            if o.matches[name].status == "pre"
+        ]
+        # The recording has no summaries before kickoff (HTTP 404): the line-ups
+        # stay unknown and the window is asked every PRE_REFRESH.
+        assert before, name
+        assert min(before) >= KICKOFF[name] - LINEUP_LEAD, name
+        assert max(before) < KICKOFF[name] + LINEUP_GRACE, name
+        for previous, current in pairwise(before):
+            assert current - previous >= PRE_REFRESH - timedelta(seconds=15), name
     last_fetch = max(o.time for o in timeline if o.summary_requests)
     assert last_fetch < (
         RECORDING.final_whistle(LEAD_CHANGES) + SUMMARY_SETTLE + POST_REFRESH * 2
@@ -513,8 +527,12 @@ async def test_summary_every_three_minutes_or_on_status_change(
 async def test_summary_details_grow_during_the_game(
     timeline: list[Observation],
 ) -> None:
-    """ESP @ ENG: lineups from the start, substitutions and half time grow in."""
-    fetched = [o.matches[LEAD_CHANGES] for o in summary_fetches(timeline, LEAD_CHANGES)]
+    """ESP @ ENG: lineups from kickoff, substitutions and half time grow in."""
+    fetched = [
+        o.matches[LEAD_CHANGES]
+        for o in summary_fetches(timeline, LEAD_CHANGES)
+        if o.matches[LEAD_CHANGES].status != "pre"
+    ]
     assert all(match.lineups for match in fetched)
     subs = [match.substitutions for match in fetched]
     assert subs == sorted(subs)
