@@ -1,29 +1,22 @@
-"""Tests for the shadow comparison script (scripts/compare_shadow.py)."""
+"""Tests for the shadow comparison helpers (tests/shadow.py)."""
 
 from __future__ import annotations
 
 import copy
-import importlib.util
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from . import shadow
 from .common import load_json
 from custom_components.matchday.logic.merge import merge_matches, norm_de
-
-SCRIPT = Path(__file__).parents[1] / "scripts" / "compare_shadow.py"
 
 
 @pytest.fixture(scope="module")
 def script() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("compare_shadow", SCRIPT)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return shadow
 
 
 @pytest.fixture

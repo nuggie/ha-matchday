@@ -1,7 +1,7 @@
 """Replay harness: drive the coordinator through a recorded ESPN matchday.
 
 ``tests/fixtures/replay/*.json.gz`` hold real ESPN scoreboard snapshots of live
-games (``scripts/make_replay_fixture.py``). The harness pairs them with a
+games, slimmed with ``tests/slim.py``. The harness pairs them with a
 synthetic OpenLigaDB season in which the recorded games form one matchday, serves
 every source according to the simulated clock (freezer) and advances the clock in
 steps of the ``update_interval`` the coordinator sets itself. The scheduled

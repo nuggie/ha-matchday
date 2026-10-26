@@ -30,7 +30,7 @@ from custom_components.matchday.logic.espn_only import (
 )
 from custom_components.matchday.logic.matchday import INTERVAL_LIVE
 
-# Recorded 2026-10-12 (scripts/record_uefa.py ucl --season 2026): all scoreboard
+# Recorded 2026-10-12 from ESPN (ucl, season 2026): all scoreboard
 # months of uefa.champions (07/2026-06/2027) and uefa.champions_qual (06-08/2026),
 # the standings after matchday 1 and the summary of one matchday 1 match.
 UCL = load_json("competitions/ucl-2026-20261012.json.gz")
@@ -40,7 +40,7 @@ EVENTS = [
     for event in answer.get("events") or []
 ]
 ROUNDS = season_rounds(EVENTS)
-# Recorded 2026-10-12 (scripts/record_uefa.py ucl --season 2025): the finished
+# Recorded 2026-10-12 from ESPN (ucl, season 2025): the finished
 # season 2025/26 with qualifying, league phase and knockout rounds, the final
 # standings and the summary of the final.
 UCL_2025 = load_json("competitions/ucl-2025-20261012.json.gz")

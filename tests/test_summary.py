@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import copy
 from datetime import UTC, datetime, timedelta
-import importlib.util
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 
 import pytest
 
+from . import slim
 from .common import home_team_id, load_json, oldb_match
 from .replay import Recording
 from custom_components.matchday.logic.summary import (
@@ -28,7 +27,6 @@ from custom_components.matchday.logic.summary import (
     parse_summary,
 )
 
-SCRIPT = Path(__file__).parents[1] / "scripts" / "make_replay_fixture.py"
 BAYERN_UNION = load_json("espn_summary_ger.1_401884790.json.gz")  # 7:0, BL 4
 SAARBRUECKEN_HERTHA = load_json(  # 1:1, 2:4 on penalties, DFB-Pokal round 1
     "espn_summary_ger.dfb_pokal_401875181.json.gz"
@@ -41,11 +39,7 @@ KICKOFF = datetime(2026, 9, 26, 18, 45, tzinfo=UTC)
 
 @pytest.fixture(scope="module")
 def fixture_script() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("make_replay_fixture", SCRIPT)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return slim
 
 
 # --- parser -------------------------------------------------------------------

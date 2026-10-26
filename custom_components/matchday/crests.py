@@ -6,7 +6,7 @@ each club's Wikipedia article (de for German clubs, en for English ones), they
 win over the OpenLigaDB URL. Teams without an entry keep the OpenLigaDB URL.
 
 SVGs over ~200 KB are replaced by a 120 px PNG thumbnail of the same file.
-``scripts/check_crests.py`` checks that every URL loads and reports teams of the
+``.github/scripts/check_crests.py`` checks that every URL loads and reports teams of the
 current seasons that have no entry (promoted clubs).
 """
 

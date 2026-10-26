@@ -19,7 +19,7 @@ def load_json(name: str) -> Any:
 
     Recorded on 2026-09-26: OpenLigaDB bl1 last/next match and season 2026
     matchday 4, ESPN ger.1 scoreboard ``?dates=202609``. Recorded on 2026-09-27
-    (``scripts/record_fixtures.py``): one bundle per competition in
+    from the live APIs: one bundle per competition in
     ``competitions/`` and three unmodified summaries ``espn_summary_*``.
     """
     path = FIXTURES / name
@@ -37,7 +37,7 @@ def load_bundle(competition: str) -> dict[str, Any]:
 def load_history() -> dict[str, Any]:
     """Load the recorded answers behind matchday browsing, 2026-09-27.
 
-    ``scripts/record_history.py``: OpenLigaDB groups and (slimmed) season
+    Recorded from the live APIs: OpenLigaDB groups and (slimmed) season
     fixtures of bl1, dfb and pl; bl1 matchdays 1, 2, 3, 5 and DFB-Pokal round 2;
     ESPN ger.1 scoreboards of August and September; the slimmed summary of the
     bl1 season opener.

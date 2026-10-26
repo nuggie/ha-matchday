@@ -1,8 +1,8 @@
 """All phase-2 competitions against their recorded APIs and template sensors.
 
 For each competition the coordinator runs on the answers recorded on 2026-09-27
-(``scripts/record_fixtures.py --template-sensors``) and its sensors are compared
-with ``scripts/compare_shadow.py`` against the Jinja template sensors recorded at
+(together with the template sensors) and its sensors are compared
+with ``tests/shadow.py`` against the Jinja template sensors recorded at
 the same time. Expected differences are spelled out per competition.
 """
 
@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
-import importlib.util
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -24,6 +22,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
+from . import shadow
 from .common import (
     ESPN,
     OLDB,
@@ -35,16 +34,10 @@ from .common import (
 from custom_components.matchday.const import COMPETITIONS, CONF_COMPETITION, DOMAIN
 from custom_components.matchday.crests import CRESTS
 
-SCRIPT = Path(__file__).parents[1] / "scripts" / "compare_shadow.py"
-
 
 @pytest.fixture(scope="module")
 def script() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("compare_shadow", SCRIPT)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return shadow
 
 
 @pytest.fixture(autouse=True)
@@ -283,7 +276,7 @@ async def test_german_entity_ids_match_compare_script(
     matchday: str,
     table: str | None,
 ) -> None:
-    """The entity ids on a German system are those compare_shadow.py expects."""
+    """The entity ids on a German system are those tests/shadow.py expects."""
     hass.config.language = "de"
     await setup_competition(hass, aioclient_mock, freezer, key)
     assert hass.states.get(matchday) is not None

@@ -220,39 +220,25 @@ use_blueprint:
 ```bash
 uv venv --python 3.14 && uv pip install -r requirements-test.txt
 .venv/bin/pytest -q
-uvx ruff check custom_components tests scripts
+uvx ruff check custom_components tests
 ```
 
-Tests use recorded OpenLigaDB/ESPN answers from `tests/fixtures/`.
-`scripts/record_fixtures.py <competition>` records everything the coordinator asks for on a day
-(OpenLigaDB lookups, matchday, table; ESPN scoreboards, standings, slimmed summaries) into
-`tests/fixtures/competitions/<competition>-<date>.json.gz`; `tests/test_competitions.py` runs
-all four competitions against them and compares the result with the template sensors Matchday
-was developed to replace (recorded alongside, compared by `scripts/compare_shadow.py`).
-`scripts/record_history.py` records what matchday browsing asks for (season schedules of
-bl1/dfb/pl, bl1 matchdays 1-3 and 5, cup round 2, ESPN scoreboards, one summary) into
-`tests/fixtures/history/`. `scripts/check_history.py --competition bl1 --matchdays 1-4`
-cross-checks browsed matchdays against the live APIs (pairing, ESPN vs OpenLigaDB final
-scores).
+The tests run against recorded OpenLigaDB/ESPN answers in `tests/fixtures/`, no network needed:
 
-**Live recordings and replay.** Finished matchdays cannot show how live data evolves, so
-`scripts/record_espn.py` records a competition day from ESPN (every 30 s, only changed
-scoreboards and live match summaries, into `recordings/`, which is not versioned):
+- `competitions/`: everything the coordinator asks for on a day, per competition.
+  `tests/test_competitions.py` runs Bundesliga, 2. Bundesliga, DFB-Pokal and Premier League
+  against them and compares the result with the template sensors Matchday was developed to
+  replace (recorded alongside, compared by `tests/shadow.py`).
+- `history/`: what matchday browsing asks for (season schedules, earlier matchdays,
+  ESPN scoreboards).
+- `replay/uefa.nations-20260926.json.gz`: a live evening of ESPN scoreboards (only the
+  snapshots in which a game changes) with the summaries of ESP @ ENG, slimmed with
+  `tests/slim.py`. `tests/test_replay.py` replays it against a synthetic OpenLigaDB matchday
+  with a simulated clock that advances in the coordinator's own `update_interval`
+  (`tests/replay.py`).
 
-```bash
-scripts/record_espn.py --slug uefa.nations --date 20260926 --until "2026-09-26 23:15"
-```
-
-`scripts/make_replay_fixture.py --summaries` cuts a slim, reproducible fixture out of it
-(selected games, only snapshots in which they change; `--game`; summaries of `--summary-game`,
-slimmed to the fields Matchday reads). The committed
-`tests/fixtures/replay/uefa.nations-20260926.json.gz` holds ESP @ ENG (with summaries),
-CRO @ CZE (VAR) and SCO @ SVN. `tests/test_replay.py` replays it against a synthetic OpenLigaDB
-matchday with a simulated clock that advances in the coordinator's own `update_interval`
-(`tests/replay.py`).
-
-Scripts that read a Home Assistant instance take `HA_TOKEN` and optional `HA_URL`
-(default `http://homeassistant.local:8123`).
+The tools that recorded these fixtures are not part of this repository.
+`.github/scripts/check_crests.py` (weekly in CI) checks that every crest URL loads.
 
 ## License
 
