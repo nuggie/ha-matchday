@@ -64,7 +64,7 @@ For the dashboard, install the [Matchday Card](https://github.com/nuggie/matchda
 - **Polling:** 60 s while a match is live or starts within 10 minutes, 5 min around the
   matchday, 30 min otherwise. Errors keep the last good data.
 - **Match summaries** (one ESPN request per match): from 75 minutes before kickoff every
-  5 minutes until the line-ups are there, then every 15 minutes; while a match runs every
+  5 minutes until the line-ups of both teams are complete, then every 15 minutes; while a match runs every
   3 minutes and on every status change; after the final whistle every 3 minutes for 10 minutes,
   then every 10 minutes until 3 hours after the whistle, then never again (a match first seen
   finished long after its kickoff, e.g. after a restart, is fetched once). Matches that are not

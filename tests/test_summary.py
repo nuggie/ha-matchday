@@ -238,21 +238,22 @@ def test_only_started_matches_with_espn_id_are_fetched() -> None:
     assert [m["matchID"] for m in due] == [3, 4, 5]
 
 
-def pre_summary(*, lineups: bool) -> dict[str, Any]:
+def pre_summary(*, lineups: bool, home: int = 11, away: int = 11) -> dict[str, Any]:
     """Return a summary as ESPN sends it before kickoff (BL, 2026-10-26).
 
     No line scores, season statistics instead of match statistics, and the
-    rosters empty until the team sheets are out.
+    rosters empty until the team sheets are out. ``home``/``away`` < 11: ESPN
+    is still filling the rosters (Liga MX 26.10.2026: home 1, away 0).
     """
 
-    def roster(side: str) -> dict[str, Any]:
+    def roster(side: str, starters: int) -> dict[str, Any]:
         players = [
             {"starter": i < 11, "athlete": {"displayName": f"{side} {i + 1}"}}
-            for i in range(18)
+            for i in range(18 if starters >= 11 else starters)
         ]
         return {
             "homeAway": side,
-            "formation": "4-2-3-1" if lineups else None,
+            "formation": "4-2-3-1" if lineups and starters else None,
             "roster": players if lineups else [],
         }
 
@@ -272,8 +273,33 @@ def pre_summary(*, lineups: bool) -> dict[str, Any]:
                 {"homeAway": "away", "statistics": season},
             ]
         },
-        "rosters": [roster("home"), roster("away")],
+        "rosters": [roster("home", home), roster("away", away)],
     }
+
+
+def test_half_lineup_before_kickoff_is_not_taken() -> None:
+    """ESPN fills the rosters player by player: before kickoff only a full
+    eleven on both sides counts, until then every PRE_REFRESH."""
+    tracker = SummaryTracker()
+    now = KICKOFF - minutes(31)
+    for home, away in ((1, 0), (11, 4)):
+        assert tracker.due([match("pre")], now)
+        tracker.store(
+            match("pre"), pre_summary(lineups=True, home=home, away=away), now
+        )
+        current = [match("pre")]
+        tracker.apply(current)
+        assert current[0]["lineups"] is None, (home, away)
+        assert tracker.due([match("pre")], now + minutes(4)) == []
+        now += PRE_REFRESH
+
+    assert tracker.due([match("pre")], now)
+    tracker.store(match("pre"), pre_summary(lineups=True), now)
+    current = [match("pre")]
+    tracker.apply(current)
+    assert len(current[0]["lineups"]["home"]["players"]) == 11
+    assert len(current[0]["lineups"]["away"]["players"]) == 11
+    assert tracker.due([match("pre")], now + PRE_REFRESH) == []
 
 
 def test_lineups_before_kickoff() -> None:

@@ -54,15 +54,18 @@ SETTLED_AFTER_KICKOFF = timedelta(hours=5)
 # attempts (three minutes apart at least) instead of being asked forever.
 MAX_POST_FAILURES = 3
 # Line-ups before kickoff: team sheets are due 75 minutes before kickoff, ESPN
-# fills ``rosters`` about an hour before. From ``LINEUP_LEAD`` before kickoff a
-# match still "pre" is fetched every ``PRE_REFRESH`` until its line-ups are
-# known, then every ``PRE_KNOWN_REFRESH`` for late changes. A match that stays
-# "pre" past its kickoff (late status switch, delay) is asked for
+# fills ``rosters`` later (Liga MX 26.10.2026: 29 minutes before), player by
+# player — a minute earlier the home side had one starter, the away side none.
+# From ``LINEUP_LEAD`` before kickoff a match still "pre" is fetched every
+# ``PRE_REFRESH`` until both sides have ``STARTERS`` players (a half line-up is
+# not taken), then every ``PRE_KNOWN_REFRESH`` for late changes. A match that
+# stays "pre" past its kickoff (late status switch, delay) is asked for
 # ``LINEUP_GRACE`` more.
 LINEUP_LEAD = timedelta(minutes=75)
 LINEUP_GRACE = timedelta(minutes=30)
 PRE_REFRESH = timedelta(minutes=5)
 PRE_KNOWN_REFRESH = timedelta(minutes=15)
+STARTERS = 11
 
 
 def _by_side(items: Iterable[Any], side: str) -> Mapping[str, Any] | None:
@@ -206,6 +209,14 @@ def parse_lineups(summary: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def lineups_complete(lineups: Mapping[str, Any] | None) -> bool:
+    """Return True if both sides of a ``parse_lineups`` result have a full eleven."""
+    return bool(lineups) and all(
+        len(_list(_mapping(lineups.get(side)).get("players"))) >= STARTERS
+        for side in ("home", "away")
+    )
+
+
 def parse_pso(summary: Mapping[str, Any]) -> dict[str, Any] | None:
     """Return the penalty shootout (``shootoutScore`` of both teams), if any."""
     sides = _header_sides(summary)
@@ -296,8 +307,8 @@ class SummaryTracker:
 
     - Only matches with an ESPN id that are live, at half time or finished, or
       about to start (``LINEUP_LEAD``, for the line-ups).
-    - Matches before kickoff: every five minutes until the line-ups are known,
-      then every 15 minutes.
+    - Matches before kickoff: every five minutes until the line-ups of both
+      sides are complete (a half line-up is not taken), then every 15 minutes.
     - Running matches: on every status change and every three minutes.
     - Finished matches: on the final whistle, every three minutes during
       ``POST_EARLY``, then every ``POST_REFRESH`` until ``SUMMARY_SETTLE`` has
@@ -386,6 +397,8 @@ class SummaryTracker:
             return
         entry.failures = 0
         fresh = parse_summary(summary, match.get("espn_home_team_id"))
+        if status == "pre" and not lineups_complete(fresh["lineups"]):
+            fresh["lineups"] = None
         for key, value in fresh.items():
             if value is not None:
                 entry.details[key] = value
