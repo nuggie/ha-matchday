@@ -14,7 +14,3 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
-          # While the repository is private the action cannot read file contents and fails
-          # hacsjson/integration_manifest with "Got None" (see hacs/integration#5497). Both
-          # files are valid (hassfest checks the manifest). Remove this line when going public.
-          ignore: hacsjson integration_manifest
